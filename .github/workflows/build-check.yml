@@ -1,0 +1,47 @@
+name: Build Check (PR)
+
+# Validates that the binary compiles on every PR to main
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  build-check:
+    name: Compile Check
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install nuitka ordered-set
+          pip install -r requirements.txt
+
+      - name: Build binary
+        run: |
+          mkdir -p dist
+          python -m nuitka \
+            --onefile \
+            --output-dir=dist \
+            --output-filename=speky \
+            --include-package=anthropic \
+            --include-package=dotenv \
+            --include-package=requests \
+            --follow-imports \
+            --assume-yes-for-downloads \
+            --remove-output \
+            speky.py
+
+      - name: Smoke test binary
+        run: |
+          chmod +x dist/speky
+          ./dist/speky status || true

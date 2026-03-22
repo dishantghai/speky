@@ -1,0 +1,140 @@
+name: Build & Release
+
+# Triggers on version tags: git tag v1.0.0 && git push --tags
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write  # needed to create GitHub releases
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            output: speky
+          - os: macos-13         # Intel runner
+            platform: macos-x86_64
+            output: speky
+          - os: macos-latest     # Apple Silicon (M1/M2)
+            platform: macos-arm64
+            output: speky
+          - os: windows-latest
+            platform: windows-x86_64
+            output: speky.exe
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install nuitka ordered-set
+          pip install -r requirements.txt
+
+      - name: Build binary (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p dist
+          python -m nuitka \
+            --onefile \
+            --output-dir=dist \
+            --output-filename=speky \
+            --include-package=anthropic \
+            --include-package=dotenv \
+            --include-package=requests \
+            --follow-imports \
+            --assume-yes-for-downloads \
+            --remove-output \
+            speky.py
+
+      - name: Build binary (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir dist -Force
+          python -m nuitka `
+            --onefile `
+            --output-dir=dist `
+            --output-filename=speky.exe `
+            --include-package=anthropic `
+            --include-package=dotenv `
+            --include-package=requests `
+            --follow-imports `
+            --assume-yes-for-downloads `
+            --remove-output `
+            speky.py
+
+      - name: Rename binary with platform suffix (Unix)
+        if: runner.os != 'Windows'
+        run: mv dist/speky dist/speky-${{ matrix.platform }}
+
+      - name: Rename binary with platform suffix (Windows)
+        if: runner.os == 'Windows'
+        run: Rename-Item dist\speky.exe speky-${{ matrix.platform }}.exe
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: speky-${{ matrix.platform }}
+          path: dist/speky-${{ matrix.platform }}*
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: List dist contents
+        run: ls -lh dist/
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.VERSION }}
+          name: "speky ${{ steps.version.outputs.VERSION }}"
+          body: |
+            ## speky ${{ steps.version.outputs.VERSION }}
+
+            ### Installation
+
+            **macOS / Linux (one-liner):**
+            ```bash
+            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install.sh | bash
+            ```
+
+            **Manual download:**
+            Pick the binary for your platform below and copy it to `/usr/local/bin/speky`.
+
+            | Platform | File |
+            |---|---|
+            | macOS Apple Silicon | `speky-macos-arm64` |
+            | macOS Intel | `speky-macos-x86_64` |
+            | Linux x86_64 | `speky-linux-x86_64` |
+            | Windows x86_64 | `speky-windows-x86_64.exe` |
+          files: dist/*
+          draft: false
+          prerelease: false

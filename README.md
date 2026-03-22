@@ -4,50 +4,55 @@
 
 A thin orchestration layer for AI-assisted software development. SPEKY manages context, generates specs, and integrates with your IDE (Windsurf, Cursor, Claude Code).
 
+## Installation
+
+### macOS / Linux (one-liner)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/dishantghai/speky/main/scripts/install.sh | bash
+```
+
+### Manual download
+
+Go to [releases](https://github.com/dishantghai/speky/releases/latest) and download the binary for your platform:
+
+| Platform | File |
+|---|---|
+| macOS Apple Silicon (M1/M2/M3) | `speky-macos-arm64` |
+| macOS Intel | `speky-macos-x86_64` |
+| Linux x86_64 | `speky-linux-x86_64` |
+| Windows | `speky-windows-x86_64.exe` |
+
+```bash
+chmod +x speky-macos-arm64
+sudo mv speky-macos-arm64 /usr/local/bin/speky
+```
+
 ## Quick Start
 
 ```bash
-# Install
-pip install anthropic
 export ANTHROPIC_API_KEY="sk-ant-..."
 
 # Initialize project
-python3 speky.py init "Your product idea"
+speky init "Your product idea"
 
 # Create feature spec
-python3 speky.py spec "Feature name"
+speky spec "Feature name"
 
 # Generate implementation plan
-python3 speky.py plan 001
+speky plan 001
 
 # Implement
-python3 speky.py implement 001
+speky implement 001
 
 # Mark complete and commit
-python3 speky.py complete 001 --commit
+speky complete 001 --commit
 
 # Push to remote
 git push
 ```
 
-### Run `speky` from any folder
-
-On a new machine, you can set up a simple shell alias so `speky` is available from any directory.
-
-```bash
-# Clone this repo somewhere permanent
-git clone https://github.com/your-org/speky.git
-
-# Add this alias to your shell config (~/.zshrc or ~/.bashrc)
-alias speky="python3 /full/path/to/speky/speky.py"
-
-# Reload your shell config
-source ~/.zshrc   # or: source ~/.bashrc
-
-# Now you can run SPEKY from any project folder
-cd /path/to/your/project
-speky init "Your product idea"
-```
+> See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full build, release, and developer setup guide.
 
 ## Key Features
 

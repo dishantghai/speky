@@ -14,11 +14,11 @@ long_description = readme_file.read_text() if readme_file.exists() else ""
 setup(
     name="speky",
     version="0.3.0",
-    description="AI-Assisted Scalable Engineering Framework - Thin orchestration layer for spec-driven development",
+    description="Speky-AI-Assisted Scalable Engineering Framework - Thin orchestration layer for spec-driven development",
     long_description=long_description,
     long_description_content_type="text/markdown",
     author="SPEKY Contributors",
-    url="https://github.com/yourusername/speky",
+    url="https://github.com/dishantghai/speky",
     py_modules=["speky", "speky_testing"],
     python_requires=">=3.8",
     install_requires=[
