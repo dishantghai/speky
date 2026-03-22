@@ -79,7 +79,7 @@ This project uses **SPEKY** (AI-Assisted Scalable Engineering Framework) for spe
 **When to suggest phases:**
 - If project has 5+ specs and no phases, suggest: "You have multiple specs. Consider `speky phases suggest` to organize implementation."
 
-### 🔧 CRITICAL: Tech Decisions
+### 🔧 CRITICAL: Tech & Architecture Decisions
 
 **BEFORE suggesting or using ANY package/framework:**
 1. Check if `.speky/context/tech_decisions.md` exists
@@ -87,12 +87,16 @@ This project uses **SPEKY** (AI-Assisted Scalable Engineering Framework) for spe
 3. NEVER suggest alternatives to decided technologies
 4. If a spec uses wrong packages, flag it for correction
 
-Example tech_decisions.md content:
-```
-## Database: Drift (not SQLite/sqflite)
-## WebView: flutter_inappwebview (not webview_flutter)
-## State: Riverpod (not Provider)
-```
+**BEFORE implementing significant logic:**
+1. Check the "Important Architecture Decisions" section in `tech_decisions.md`
+2. Follow documented patterns, conventions, and design decisions
+3. Avoid documented anti-patterns
+4. If making architectural changes, update this section first
+
+This file contains:
+- **Tech Stack**: Authoritative package/framework choices
+- **Important Architecture Decisions**: Patterns, conventions, design decisions
+- **Anti-Patterns to Avoid**: What NOT to do
 
 ### 🎨 CRITICAL: Design System
 
@@ -479,10 +483,73 @@ Tell the developer to use these commands:
 - `speky story "title" --specs 001,002` - Create story linked to multiple specs
 - `speky story "title" --files lib/*.dart` - Create story with affected files
 
+**Testing & TDD:**
+- `speky implement 001 --tdd` - Start TDD workflow (tests first)
+- `speky test init` - Initialize testing infrastructure
+- `speky test gen 001` - Generate tests for spec
+- `speky test run` - Run all tests
+- `speky test coverage` - Show test coverage
+- `speky test gaps` - Find untested code
+- `speky test tdd-red 001` - Generate failing tests (Red phase)
+- `speky test tdd-green 001` - Verify tests pass (Green phase)
+- `speky complete 001 --test` - Run tests before marking complete
+
+**Configuration & Decisions:**
+- `speky config --ides` - Show/manage enabled IDEs
+- `speky decisions` - View/manage tech decisions
+- `speky validate-story F001` - Validate story quality
+
 **Maintenance:**
 - `speky sync` - Sync codebase context
 - `speky review 001` - Check for spec-code drift
 - `speky cleanup` - Remove any clutter files
+
+**Advanced:**
+- `speky mark-foundation 001` - Mark spec as foundation
+- `speky fix-circular-deps` - Fix circular dependencies
+- `speky renumber` - Renumber specs to match order
+
+## 🧪 TDD Workflow (Test-Driven Development)
+
+**When developer says `speky implement 001 --tdd`:**
+
+The TDD workflow follows Red-Green-Refactor:
+
+### 1. RED Phase (Write Failing Tests)
+```bash
+speky test tdd-red 001
+```
+- AI generates test cases from spec's acceptance criteria
+- Tests should FAIL initially (no implementation yet)
+- You implement ONLY enough to make tests compile
+
+### 2. GREEN Phase (Make Tests Pass)
+```bash
+speky test tdd-green 001
+```
+- Implement minimum code to make tests pass
+- Don't over-engineer - just make tests green
+- Run tests frequently: `speky test run --spec 001`
+
+### 3. REFACTOR Phase
+- Clean up code while keeping tests green
+- Run tests after each refactor
+
+### TDD Workflow Example
+```
+Developer: "speky implement 001 --tdd"
+
+You: "Starting TDD workflow for spec 001.
+
+Phase 1 (RED): Writing failing tests first.
+[Generate tests from acceptance criteria]
+
+Phase 2 (GREEN): Implementing minimum code to pass.
+[Make tests pass one by one]
+
+Phase 3 (REFACTOR): Tests pass! Cleaning up code.
+[Refactor while keeping tests green]"
+```
 
 ## Creating Specs Directly (Advanced)
 
@@ -901,27 +968,17 @@ Example:
 ## Project Context
 
 ## Product Context
-Name: 
-Description: 
-Target Users: 
-Problem: 
-Scale: mvp
-Domain: 
+**Name**: 
+**Description**: 
+**Target Users**: 
+**Scale**: mvp
 
 ## Tech Stack
-Not decided
+Not configured
 
 ## Architecture
-Type: 
+**Type**: 
 
-## Active Specs
-- 001: test-failure-triage
-
-## Codebase Structure
-# Codebase Structure
-
-## Project Type
-Python package/library focused on AI-assisted software engineering features (SPEKY) with extensive documentation and testing infrastructure.
 
 ## Key Directories
 - `speky.egg-info/` - Python package metadata and distribution files
@@ -930,4 +987,16 @@ Python package/library focused on AI-assisted software engineering features (SPE
 - `image/` - Screenshots and visual documentation assets
 
 ## Key Files
-- `speky.py` - Main module implem
+- `speky.py` - Main module implementation
+- `speky_testing.py` - Test suite for the main module
+- `setup.py` - Package installation and distribution configuration
+- `requirements.txt` - Python dependencies
+- `README.md` - Project overview and setup instructions
+- `QUICKSTART.md` - Getting started guide
+
+## Patterns Observed
+- **Documentation-heavy**: Extensive markdown files for features, testing, and processes
+- **Feature-driven development**: Multiple feature specification files (IMPORT_FEATURE.md, EPIC_FEATURE.md, etc.)
+- **Testing-focused**: Multiple testing-related documents and dedicated test files
+- **Process documentation**: Workflow files for commits, sequencing, and development processes
+- **Standard Python package structure**: Follows Python packaging conventions
