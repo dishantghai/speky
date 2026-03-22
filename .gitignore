@@ -1,0 +1,8 @@
+.DS_Store # if not already there
+
+*.env
+
+# Python bytecode cache
+__pycache__/
+*.pyc
+*.pyo

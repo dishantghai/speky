@@ -1,0 +1,7 @@
+# SPEKY Configuration
+model: claude-sonnet-4-20250514
+max_tokens: 4096
+temperature: 0.7
+api_timeout: 120
+ide: windsurf
+mcp_enabled: False

@@ -1,0 +1,29 @@
+I want to discuss about "SPEKY" that is my personal but scalable AI Assisted Software Engineering Framework. Like I want to make best use of AI for Building any kind of Products  for eg. look at /sample_projects/ its not jsut about these , these are just things I am working on currently, but i want a Structured Way of using AI for all the Steps of Product Development. I want to use a minimal set of extremely powerful tools and setup, I want to use AI Agents (exisitng / I can build new / custom as well for this SPEKY) Agentic Workflows / Automations / AI Skills / Software Engineering Best practices for managing a Lot of Parts Like 
+- Manging Initial + Ever-changing Requirements for a Product.
+- Building Specs in a Way that both Humans and AI can Read and Understand for important Product Management + Product Building Practices.
+- like a Context Gatherer and Provider Agent whose Job to to find the Best Way to Gather Context for the Given Task at hand Gathers That Context and Makes it available for the calling Task and Caching it for future use and keeping this Contextual Knowledge Up-to-date.
+- Product Manager Agent that helps in Writing overall Product Specs and Epics and Stories for Rolling Out Features at all stages inital + developement + ongoing Product Improvement
+- CTO cum Software Architect Agent that understands the Requirements and Defines the Architectural Diagrams and Implementation Plan for the Epic / Story etc. 
+- Research Agent / Tool that helps in performing Deep Research on Any Topic and keeps that  available as Context / markdown, which the Context Gatherer and Provider Agent can make use for any specefic task given to it.
+- UX Researcher Agent / Tool that speciales in understanfing the Product and provides Best UX Ideas for the Product in General and even for a Specefic Product Story.
+- UI Design cum manager Agent  that Implements the UI Design for overall Product Screens, Walkthrough, Icons, StyleGuides etc. and keeps everything related to the UI/UX in the Project in Sync.
+- Coding Agent That works on a Provided Context and Codebase, and can develop Front End and Backend Features based on some user Stories. Follows TDD, AI Assisted and Spec Driven Development with Software Engineering Best Practices.
+- Code Review Agent
+- QA Agent
+
+- Drift Mangement in All Docs - Specs / Stories / Implementation Plans / Actual Impleemntations etc. 
+- Managing Tech Debt
+- System Impact / Migrations etc
+- Deployment / Realease Tasks etc
+- Security Features /Audits / Compliance etc.
+
+ideally I want to do everyhting in a single Git Repo. Can use some minimal opensource / free tool that just adds a Layer of UI if required to perform these tasks better, I am ok with using Terminal / IDEs . I have a tech background.
+
+Do a Deep Research, I am open to ideas, but make it very simple for a Single Person or a Team of 2-35 People to Follow, Think I am a single Tech Entrpreneur , dont make it too cumbersome to follow, I have given my thinking you are free to research and provide exisiting modern latest best practices / frameworks to achieve what I want to achieve.
+
+Essentially, i want to use the Modern Way of AI Assisted Spec Driven Developement that is sustainble to follow for a Long Term Project not just Vibe Coding, But makes full use of AI for Automations, Best Practices, but does not slow me down in these process overheads, I should be able to do everything from Product Mangement to Implementation to Deployment in a Single Git Repo with least amount of Documents required, with Most Efficitent TOken Usage, a way that AI does not run out of Context Window does not forget inofrmation even in large code bases, If people have already built something for this use that, help me onboard on this way doing software, make me self sufficient in this, onboard me slowly, start simple. Do not add unneccessary steps, keep it modern and effective using AI and Human in the Loop. Ask any questions if Unclear. 
+
+
+
+
+You Should Create An  aptly Automated Framework For me That Helps Starting from Research, Product Management to Implementation, testing , Deployment. Ideally I shoudl not be writing prompts, based on my Intent specified there should be an Agent that asks calrifying questions, Elaborates my propmpts appropriately, calls the requried agents with right prompt and context, monitors the output and keep me in the loop with all the activities , I should just be plugging in gaps for clarification of intent, the AI system should do Everyhting, I want to build such a System. This all shoudl be we Techstack Agnostic, Product Agnostic, Scale Agnostic. Generate such a System, you can develop it in Pyhthon, I am decent at Python. Give me step by Instructions to setup this System, it should work for any Idea / Product, it should scaffold, guide step by step, ask clarifying questions, show progress step by step, Make Techinical and Product Decisions by keeping me in loop and giving me options and only work on my approved aptions in terms of Design, Tech Stack Evaluation and other macro level tasks , so there should be some iterative process that shoudl be accomodated in the workflow and based on its results the AI should Proceed, Shoudl be able to implement most of the micro level stuff as it should now have enough context to do that, but involve the develper/ me in critical steps or there can be flexibilty in the framework to setup these as settings. As the System will be based on AI / Web Search at various steps so we dont want the framework itself to be product specefic or specefic to anyhting, the framework is the meta generator for meta generator for a Product (hope you understood that we are talking one level up the actual implementation, it can be anyhting, the prompt need to be dynamically generated for each step in the process based on the context, we need the meta level Prompts, Code and Orchestration that makes all this happen). Lets build this. 

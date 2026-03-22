@@ -1,0 +1,32 @@
+[
+  {
+    "name": "integration with \"existing SPEKY test runner modules (FlutterTestRunner, PytestRunner, JestRunner)\"",
+    "description": "The specification requires integration with \"existing SPEKY test runner modules (FlutterTestRunner, PytestRunner, JestRunner)\" but the actual speky_testing.py code only contains configuration references to these frameworks in DEFAULT_TESTING_CONFIG, not actual runner implementations or integrations.",
+    "suggestion": "Implement the actual test runner classes and their integration with the triage system as specified.",
+    "type": "CODE_BEHIND",
+    "priority": "P2",
+    "source_spec": "test-failure-triage",
+    "created_at": "2026-01-13T15:09:18.343820",
+    "status": "pending"
+  },
+  {
+    "name": "triage - file access patterns for specs, git history, and VCS integration",
+    "description": "The specification details file access patterns for specs, git history, and VCS integration with specific command patterns like `git diff --name-only HEAD~1..HEAD`, but the actual code has no git integration or file change tracking implementation.",
+    "suggestion": "Implement the git integration and file change tracking components as detailed in the specification's \"File Access Patterns\" section.",
+    "type": "CODE_BEHIND",
+    "priority": "P2",
+    "source_spec": "test-failure-triage",
+    "created_at": "2026-01-13T15:09:18.344775",
+    "status": "pending"
+  },
+  {
+    "name": "triage-User Interface & Progressive Disclosure",
+    "description": "The specification defines a detailed progressive disclosure UI with specific interaction patterns, terminal formatting, and expandable sections, but the actual code has no UI implementation or output formatting logic.",
+    "suggestion": "Implement the progressive disclosure interface and terminal formatting system as specified in the \"User Interface & Progressive Disclosure\" section.",
+    "type": "CODE_BEHIND",
+    "priority": "P2",
+    "source_spec": "test-failure-triage",
+    "created_at": "2026-01-13T15:09:25.530295",
+    "status": "pending"
+  }
+]
