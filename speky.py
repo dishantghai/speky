@@ -59,13 +59,52 @@ def _load_env():
 
 _load_env()
 
-# Third-party imports
+# Third-party imports — detect available AI provider in priority order
+ANTHROPIC_AVAILABLE = False
+OPENAI_AVAILABLE = False
+GEMINI_AVAILABLE = False
+
 try:
     from anthropic import Anthropic
     ANTHROPIC_AVAILABLE = True
 except ImportError:
-    ANTHROPIC_AVAILABLE = False
-    print("⚠️  anthropic package not installed. Run: pip install anthropic")
+    pass
+
+try:
+    from openai import OpenAI as OpenAIClient
+    OPENAI_AVAILABLE = True
+except ImportError:
+    pass
+
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    pass
+
+if not any([ANTHROPIC_AVAILABLE, OPENAI_AVAILABLE, GEMINI_AVAILABLE]):
+    print("⚠️  No AI provider installed. Run: pip install anthropic  (or openai / google-generativeai)")
+
+
+def _detect_provider() -> str:
+    """Detect which AI provider to use. Priority: Anthropic → OpenAI → Gemini."""
+    if os.environ.get("ANTHROPIC_API_KEY") and ANTHROPIC_AVAILABLE:
+        return "anthropic"
+    if os.environ.get("OPENAI_API_KEY") and OPENAI_AVAILABLE:
+        return "openai"
+    if os.environ.get("GEMINI_API_KEY") and GEMINI_AVAILABLE:
+        return "gemini"
+    # Key not set — let SDK raise auth error naturally
+    if ANTHROPIC_AVAILABLE:
+        return "anthropic"
+    if OPENAI_AVAILABLE:
+        return "openai"
+    if GEMINI_AVAILABLE:
+        return "gemini"
+    return None
+
+
+AI_PROVIDER = _detect_provider()
 
 # =============================================================================
 # CONFIGURATION
@@ -2697,54 +2736,113 @@ Do not truncate or summarize - output the full document with all changes incorpo
 # =============================================================================
 
 class AIClient:
-    """Wrapper around AI APIs with retry logic and JSON extraction"""
+    """Wrapper around AI APIs with retry logic and JSON extraction.
+
+    Supports Anthropic Claude (primary), OpenAI GPT (1st fallback),
+    and Google Gemini (2nd fallback). Provider is selected automatically
+    based on which API key is set in the environment.
+    """
+
+    _PROVIDER_DEFAULT_MODELS = {
+        "anthropic": "claude-sonnet-4-20250514",
+        "openai": "gpt-4o",
+        "gemini": "gemini-1.5-pro",
+    }
 
     def __init__(self, config: dict = None):
-        self.config = config or DEFAULT_CONFIG
+        self.config = dict(config or DEFAULT_CONFIG)
         self.client = None
-        if ANTHROPIC_AVAILABLE:
+        self.provider = AI_PROVIDER
+
+        if self.provider == "anthropic" and ANTHROPIC_AVAILABLE:
             self.client = Anthropic()
+        elif self.provider == "openai" and OPENAI_AVAILABLE:
+            self.client = OpenAIClient()
+            if self.config.get("model", "").startswith("claude-"):
+                self.config["model"] = self._PROVIDER_DEFAULT_MODELS["openai"]
+            Console.log(f"AI provider: OpenAI ({self.config['model']})")
+        elif self.provider == "gemini" and GEMINI_AVAILABLE:
+            model_name = self.config.get("model", self._PROVIDER_DEFAULT_MODELS["gemini"])
+            if model_name.startswith("claude-"):
+                model_name = self._PROVIDER_DEFAULT_MODELS["gemini"]
+            genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
+            self.client = genai.GenerativeModel(model_name)
+            self.config["model"] = model_name
+            Console.log(f"AI provider: Google Gemini ({model_name})")
+        else:
+            Console.error("No AI provider available. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
 
     def query(self, prompt: str, system: str = None, max_tokens: int = None, use_streaming: bool = None) -> Optional[str]:
-        """Query AI and return response with retry logic. Uses streaming for large requests."""
+        """Query AI and return response with retry logic. Supports Anthropic, OpenAI, and Gemini."""
         if not self.client:
-            Console.error("AI client not available. Install anthropic package.")
+            Console.error("No AI client available. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
             return None
-            
+
         if system is None:
             system = "You are an expert AI assistant. Be concise and actionable."
 
         tokens = max_tokens or self.config["max_tokens"]
-        
+
         # Auto-enable streaming for large token requests (>8192) to avoid timeout
+        # Gemini handles large requests natively — no streaming needed
         if use_streaming is None:
-            use_streaming = tokens > 8192
+            use_streaming = tokens > 8192 and self.provider != "gemini"
 
         max_retries = 3
         for attempt in range(max_retries):
             try:
-                if use_streaming:
-                    # Use streaming for large requests to avoid timeout
-                    collected_text = []
-                    with self.client.messages.stream(
-                        model=self.config["model"],
-                        max_tokens=tokens,
-                        temperature=self.config["temperature"],
-                        system=system,
-                        messages=[{"role": "user", "content": prompt}],
-                    ) as stream:
-                        for text in stream.text_stream:
-                            collected_text.append(text)
-                    return "".join(collected_text)
-                else:
-                    response = self.client.messages.create(
-                        model=self.config["model"],
-                        max_tokens=tokens,
-                        temperature=self.config["temperature"],
-                        system=system,
-                        messages=[{"role": "user", "content": prompt}],
-                    )
-                    return response.content[0].text
+                if self.provider == "anthropic":
+                    if use_streaming:
+                        collected_text = []
+                        with self.client.messages.stream(
+                            model=self.config["model"],
+                            max_tokens=tokens,
+                            temperature=self.config["temperature"],
+                            system=system,
+                            messages=[{"role": "user", "content": prompt}],
+                        ) as stream:
+                            for text in stream.text_stream:
+                                collected_text.append(text)
+                        return "".join(collected_text)
+                    else:
+                        response = self.client.messages.create(
+                            model=self.config["model"],
+                            max_tokens=tokens,
+                            temperature=self.config["temperature"],
+                            system=system,
+                            messages=[{"role": "user", "content": prompt}],
+                        )
+                        return response.content[0].text
+
+                elif self.provider == "openai":
+                    messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+                    if use_streaming:
+                        stream = self.client.chat.completions.create(
+                            model=self.config["model"],
+                            max_tokens=tokens,
+                            temperature=self.config["temperature"],
+                            messages=messages,
+                            stream=True,
+                        )
+                        collected_text = []
+                        for chunk in stream:
+                            if chunk.choices[0].delta.content:
+                                collected_text.append(chunk.choices[0].delta.content)
+                        return "".join(collected_text)
+                    else:
+                        response = self.client.chat.completions.create(
+                            model=self.config["model"],
+                            max_tokens=tokens,
+                            temperature=self.config["temperature"],
+                            messages=messages,
+                        )
+                        return response.choices[0].message.content
+
+                elif self.provider == "gemini":
+                    full_prompt = f"{system}\n\n{prompt}" if system else prompt
+                    response = self.client.generate_content(full_prompt)
+                    return response.text
+
             except Exception as e:
                 error_msg = str(e)
                 # If we get a streaming required error, retry with streaming
@@ -2752,7 +2850,7 @@ class AIClient:
                     Console.log("Switching to streaming mode for large request...")
                     use_streaming = True
                     continue
-                    
+
                 if attempt < max_retries - 1:
                     Console.warning(f"API error (attempt {attempt + 1}): {error_msg}")
                     import time
@@ -17068,6 +17166,9 @@ Output as structured markdown with exact values.
 Be specific with pixel values and hex codes."""
 
         try:
+            if self.ai.provider != "anthropic":
+                Console.warning("Image analysis requires an Anthropic API key (ANTHROPIC_API_KEY). Skipping.")
+                return None
             response = self.ai.client.messages.create(
                 model=self.config["model"],
                 max_tokens=4096,
@@ -17091,7 +17192,7 @@ Be specific with pixel values and hex codes."""
                     }
                 ],
             )
-            
+
             return {
                 "analysis": response.content[0].text,
                 "analyzed_at": datetime.now().isoformat(),
