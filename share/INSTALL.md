@@ -32,6 +32,18 @@ This downloads the correct binary for your platform and installs it to `/usr/loc
 
 ---
 
+## Optional: Gemini Support
+
+The speky binary includes Anthropic and OpenAI support out of the box. To use Google Gemini as a fallback, install the package once:
+
+```bash
+pip install google-generativeai
+```
+
+Then set your `GEMINI_API_KEY` as shown below.
+
+---
+
 ## Set Your API Key
 
 speky auto-detects which provider to use based on which key is set. Priority: **Anthropic → OpenAI → Gemini**.

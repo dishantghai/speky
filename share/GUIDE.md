@@ -401,14 +401,19 @@ enabled_ides: [windsurf, cursor]
 
 speky picks the provider automatically based on environment variables:
 
-| Priority | Provider | Key to set |
-|---|---|---|
-| 1st | Anthropic Claude (recommended) | `ANTHROPIC_API_KEY` |
-| 2nd | OpenAI GPT | `OPENAI_API_KEY` |
-| 3rd | Google Gemini | `GEMINI_API_KEY` |
+| Priority | Provider | Key to set | Bundled in binary |
+|---|---|---|---|
+| 1st | Anthropic Claude (recommended) | `ANTHROPIC_API_KEY` | ✅ Yes |
+| 2nd | OpenAI GPT | `OPENAI_API_KEY` | ✅ Yes |
+| 3rd | Google Gemini | `GEMINI_API_KEY` | ⚠️ Requires extra step |
 
 Set the key in your shell profile or in a `.env` file at the project root.
 speky uses the first key it finds — no other configuration needed.
+
+**Using Gemini?** Run this once after installing speky:
+```bash
+pip install google-generativeai
+```
 
 > **Note:** Design image analysis (`speky design`) requires Anthropic Claude.
 > All other commands work with any provider.
