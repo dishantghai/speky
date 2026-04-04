@@ -19,7 +19,7 @@ jobs:
           - os: ubuntu-latest
             platform: linux-x86_64
             output: speky
-          - os: macos-13-large   # Intel runner
+          - os: macos-12         # Intel runner
             platform: macos-x86_64
             output: speky
           - os: macos-latest     # Apple Silicon (M1/M2)
