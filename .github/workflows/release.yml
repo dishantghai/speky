@@ -19,10 +19,7 @@ jobs:
           - os: ubuntu-latest
             platform: linux-x86_64
             output: speky
-          - os: macos-12         # Intel runner
-            platform: macos-x86_64
-            output: speky
-          - os: macos-latest     # Apple Silicon (M1/M2)
+          - os: macos-latest     # Apple Silicon (M1/M2) — runs via Rosetta 2 on Intel
             platform: macos-arm64
             output: speky
           - os: windows-latest
@@ -133,8 +130,7 @@ jobs:
 
             | Platform | File |
             |---|---|
-            | macOS Apple Silicon | `speky-macos-arm64` |
-            | macOS Intel | `speky-macos-x86_64` |
+            | macOS (Apple Silicon + Intel via Rosetta 2) | `speky-macos-arm64` |
             | Linux x86_64 | `speky-linux-x86_64` |
             | Windows x86_64 | `speky-windows-x86_64.exe` |
           files: dist/*
