@@ -412,7 +412,7 @@ speky uses the first key it finds — no other configuration needed.
 
 **Using Gemini?** Run this once after installing speky:
 ```bash
-pip install google-generativeai
+pip install google-genai
 ```
 
 > **Note:** Design image analysis (`speky design`) requires Anthropic Claude.

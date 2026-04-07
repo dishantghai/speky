@@ -77,30 +77,32 @@ except ImportError:
     pass
 
 try:
-    import google.generativeai as genai
+    from google import genai as genai
     GEMINI_AVAILABLE = True
 except ImportError:
     pass
 
 if not any([ANTHROPIC_AVAILABLE, OPENAI_AVAILABLE, GEMINI_AVAILABLE]):
-    print("⚠️  No AI provider installed. Run: pip install anthropic  (or openai / google-generativeai)")
+    print("⚠️  No AI provider installed. Run: pip install anthropic  (or openai / google-genai)")
 
 
 def _detect_provider() -> str:
-    """Detect which AI provider to use. Priority: Anthropic → OpenAI → Gemini."""
+    """Detect which AI provider to use. Priority: Anthropic → OpenAI → Gemini.
+    Only selects a provider if both the package is available AND the key is set.
+    """
     if os.environ.get("ANTHROPIC_API_KEY") and ANTHROPIC_AVAILABLE:
         return "anthropic"
     if os.environ.get("OPENAI_API_KEY") and OPENAI_AVAILABLE:
         return "openai"
     if os.environ.get("GEMINI_API_KEY") and GEMINI_AVAILABLE:
         return "gemini"
-    # Key not set — let SDK raise auth error naturally
-    if ANTHROPIC_AVAILABLE:
-        return "anthropic"
-    if OPENAI_AVAILABLE:
-        return "openai"
-    if GEMINI_AVAILABLE:
-        return "gemini"
+    # No matching key+package combo found — print helpful message
+    if os.environ.get("GEMINI_API_KEY") and not GEMINI_AVAILABLE:
+        print("⚠️  GEMINI_API_KEY is set but google-genai is not installed.")
+        print("   Run: pip install google-genai")
+    elif not any([os.environ.get("ANTHROPIC_API_KEY"), os.environ.get("OPENAI_API_KEY"), os.environ.get("GEMINI_API_KEY")]):
+        print("⚠️  No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
+        print("   Add it to your shell profile or create a .env file in your project root.")
     return None
 
 
@@ -2746,7 +2748,7 @@ class AIClient:
     _PROVIDER_DEFAULT_MODELS = {
         "anthropic": "claude-sonnet-4-20250514",
         "openai": "gpt-4o",
-        "gemini": "gemini-1.5-pro",
+        "gemini": "gemini-2.0-flash",
     }
 
     def __init__(self, config: dict = None):
@@ -2754,28 +2756,56 @@ class AIClient:
         self.client = None
         self.provider = AI_PROVIDER
 
+        # Provider-specific model env vars override config default
+        # e.g. ANTHROPIC_MODEL, OPENAI_MODEL, GEMINI_MODEL in .env
+        _provider_model_env = {
+            "anthropic": "ANTHROPIC_MODEL",
+            "openai": "OPENAI_MODEL",
+            "gemini": "GEMINI_MODEL",
+        }
+
         if self.provider == "anthropic" and ANTHROPIC_AVAILABLE:
+            if os.environ.get("ANTHROPIC_MODEL"):
+                self.config["model"] = os.environ["ANTHROPIC_MODEL"]
             self.client = Anthropic()
         elif self.provider == "openai" and OPENAI_AVAILABLE:
             self.client = OpenAIClient()
-            if self.config.get("model", "").startswith("claude-"):
+            if os.environ.get("OPENAI_MODEL"):
+                self.config["model"] = os.environ["OPENAI_MODEL"]
+            elif self.config.get("model", "").startswith("claude-"):
                 self.config["model"] = self._PROVIDER_DEFAULT_MODELS["openai"]
             Console.log(f"AI provider: OpenAI ({self.config['model']})")
         elif self.provider == "gemini" and GEMINI_AVAILABLE:
-            model_name = self.config.get("model", self._PROVIDER_DEFAULT_MODELS["gemini"])
-            if model_name.startswith("claude-"):
-                model_name = self._PROVIDER_DEFAULT_MODELS["gemini"]
-            genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-            self.client = genai.GenerativeModel(model_name)
+            if os.environ.get("GEMINI_MODEL"):
+                model_name = os.environ["GEMINI_MODEL"]
+            else:
+                model_name = self.config.get("model", self._PROVIDER_DEFAULT_MODELS["gemini"])
+                if model_name.startswith("claude-"):
+                    model_name = self._PROVIDER_DEFAULT_MODELS["gemini"]
+            self.client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
             self.config["model"] = model_name
             Console.log(f"AI provider: Google Gemini ({model_name})")
         else:
-            Console.error("No AI provider available. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
+            if os.environ.get("GEMINI_API_KEY") and not GEMINI_AVAILABLE:
+                Console.error("GEMINI_API_KEY is set but google-genai is not installed.")
+                Console.error("Run: pip install google-genai")
+            elif os.environ.get("OPENAI_API_KEY") and not OPENAI_AVAILABLE:
+                Console.error("OPENAI_API_KEY is set but openai is not installed.")
+                Console.error("Run: pip install openai")
+            elif not any([os.environ.get("ANTHROPIC_API_KEY"), os.environ.get("OPENAI_API_KEY"), os.environ.get("GEMINI_API_KEY")]):
+                Console.error("No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
+            else:
+                Console.error("No AI provider available. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
 
     def query(self, prompt: str, system: str = None, max_tokens: int = None, use_streaming: bool = None) -> Optional[str]:
         """Query AI and return response with retry logic. Supports Anthropic, OpenAI, and Gemini."""
         if not self.client:
-            Console.error("No AI client available. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
+            if os.environ.get("GEMINI_API_KEY") and not GEMINI_AVAILABLE:
+                Console.error("GEMINI_API_KEY is set but google-genai is not installed. Run: pip install google-genai")
+            elif os.environ.get("OPENAI_API_KEY") and not OPENAI_AVAILABLE:
+                Console.error("OPENAI_API_KEY is set but openai is not installed. Run: pip install openai")
+            else:
+                Console.error("No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
             return None
 
         if system is None:
@@ -2840,7 +2870,9 @@ class AIClient:
 
                 elif self.provider == "gemini":
                     full_prompt = f"{system}\n\n{prompt}" if system else prompt
-                    response = self.client.generate_content(full_prompt)
+                    response = self.client.models.generate_content(
+                        model=self.config["model"], contents=full_prompt
+                    )
                     return response.text
 
             except Exception as e:
@@ -16240,10 +16272,10 @@ Total Specs: {len(ordered_specs)}
     # -------------------------------------------------------------------------
     # Command: config (SPEKY Configuration)
     # -------------------------------------------------------------------------
-    def cmd_config(self, ides: str = None, action: str = None, value: str = None, 
-                   list_ides: bool = False) -> bool:
+    def cmd_config(self, ides: str = None, action: str = None, value: str = None,
+                   list_ides: bool = False, model: str = None) -> bool:
         """View and manage SPEKY configuration, especially IDE settings
-        
+
         Usage:
             speky config                           Show current config
             speky config --list-ides               List all supported IDEs
@@ -16251,9 +16283,16 @@ Total Specs: {len(ordered_specs)}
             speky config --ides add antigravity    Add Antigravity IDE
             speky config --ides remove cursor      Remove Cursor IDE
             speky config --ides set windsurf,antigravity  Set specific IDEs
+            speky config --model                   Show current model + available env models
+            speky config --model GEMINI_MODEL      Switch to model defined by env var key
+            speky config --model gemini-2.5-pro    Switch to model by name directly
         """
         Console.header("⚙️ SPEKY Configuration")
-        
+
+        # Handle model configuration
+        if model is not None:
+            return self._config_model(model)
+
         # List all supported IDEs
         if list_ides:
             Console.section("Supported IDEs")
@@ -16266,13 +16305,53 @@ Total Specs: {len(ordered_specs)}
                 else:
                     print(f"   • {ide_name}: {ide_path}")
             return True
-        
+
         # Handle IDE configuration
         if ides is not None:
             return self._config_ides(ides, action, value)
-        
+
         # Default: show current configuration
         self._show_current_config()
+        return True
+
+    def _config_model(self, model_arg: str) -> bool:
+        """Handle model configuration — switch model via env var key or direct name."""
+        # Empty string = show current model and available env model keys
+        if not model_arg:
+            current = self.config.get("model", "not set")
+            print(f"   🤖 Current model: {current}")
+            print(f"\n   Env var model keys found in environment:")
+            found = False
+            for key, val in os.environ.items():
+                if key.endswith("_MODEL") and key.upper() == key:
+                    print(f"      {key}={val}")
+                    found = True
+            if not found:
+                print("      (none — add ANTHROPIC_MODEL, OPENAI_MODEL, or GEMINI_MODEL to .env)")
+            print(f"\n   Usage:")
+            print(f"      speky config --model GEMINI_MODEL       # use env var key")
+            print(f"      speky config --model gemini-2.5-pro     # use model name directly")
+            return True
+
+        # If arg looks like an env var key (all caps + underscores), resolve it
+        import re
+        if re.match(r'^[A-Z][A-Z0-9_]+$', model_arg):
+            resolved = os.environ.get(model_arg)
+            if not resolved:
+                Console.error(f"Env var '{model_arg}' not found. Add it to your .env file.")
+                Console.log(f"Example: {model_arg}=your-model-name")
+                return False
+            model_name = resolved
+            Console.log(f"Resolved {model_arg} → {model_name}")
+        else:
+            model_name = model_arg
+
+        # Save to config.yaml
+        config = self.context.load_config()
+        config["model"] = model_name
+        self.context._save_config(config)
+        Console.success(f"Model set to: {model_name}")
+        Console.log("Restart speky or run the next command to use the new model.")
         return True
     
     def _config_ides(self, ides: str, action: str = None, value: str = None) -> bool:
@@ -20186,6 +20265,8 @@ Examples:
     config_parser.add_argument("--ides", nargs="*", default=None,
                                help="Manage enabled IDEs: no args=show, add <ide>, remove <ide>, set <ide1,ide2,...>")
     config_parser.add_argument("--list-ides", action="store_true", help="List all supported IDEs")
+    config_parser.add_argument("--model", nargs="?", const="", default=None,
+                               help="Set or show AI model. Pass env var key (e.g. GEMINI_MODEL) or model name directly.")
     
     # design (Design System Management)
     design_parser = subparsers.add_parser("design", help="Manage design system (init, import, status, analyze, link, resolve, validate)")
@@ -20361,7 +20442,8 @@ Examples:
                 ides=ides_mode,
                 action=ides_action,
                 value=ides_value,
-                list_ides=args.list_ides
+                list_ides=args.list_ides,
+                model=args.model
             )
         elif args.command == "design":
             success = speky.cmd_design(
