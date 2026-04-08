@@ -38,7 +38,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install "nuitka[onefile]" ordered-set
-          pip install anthropic python-dotenv requests openai
+          pip install anthropic python-dotenv requests openai google-genai
 
       - name: Build binary (Unix)
         if: runner.os != 'Windows'
@@ -52,6 +52,7 @@ jobs:
             --include-package=dotenv \
             --include-package=requests \
             --include-package=openai \
+            --include-package=google \
             --follow-imports \
             --assume-yes-for-downloads \
             --remove-output \
@@ -69,6 +70,7 @@ jobs:
             --include-package=dotenv `
             --include-package=requests `
             --include-package=openai `
+            --include-package=google `
             --follow-imports `
             --assume-yes-for-downloads `
             --remove-output `
