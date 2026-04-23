@@ -4705,12 +4705,12 @@ class SPEKY:
         if self.context.is_initialized():
             context_ides = self.context.data.get("enabled_ides")
             if context_ides:
-                return context_ides
-        
+                return [context_ides] if isinstance(context_ides, str) else context_ides
+
         # Check config for enabled_ides
         enabled_ides = self.config.get("enabled_ides")
         if enabled_ides:
-            return enabled_ides
+            return [enabled_ides] if isinstance(enabled_ides, str) else enabled_ides
         
         # Fallback to single IDE setting (backward compatibility)
         single_ide = self.config.get("ide", "windsurf")
@@ -12424,20 +12424,20 @@ Respond with just:
     
     def _get_enabled_ides(self) -> List[str]:
         """Get list of enabled IDEs with backward compatibility
-        
+
         Priority: context.json (project-specific) > config (global) > fallback
         """
         # First check context.json for enabled_ides (project-specific takes precedence)
         if self.context.is_initialized():
             context_ides = self.context.data.get("enabled_ides")
             if context_ides:
-                return context_ides
-        
+                return [context_ides] if isinstance(context_ides, str) else context_ides
+
         # Check global config for enabled_ides
         enabled_ides = self.config.get("enabled_ides")
         if enabled_ides:
-            return enabled_ides
-        
+            return [enabled_ides] if isinstance(enabled_ides, str) else enabled_ides
+
         # Fallback to single IDE setting (backward compatibility)
         single_ide = self.config.get("ide", "windsurf")
         return [single_ide]
