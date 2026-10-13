@@ -7332,7 +7332,7 @@ Stay within phase scope. Check phase excludes before implementing."""
         # Show next steps
         Console.section("Next Steps")
         print("1. Commit your changes:")
-        print(f"   git add .")
+        print(f"   git add <the files you changed>")
         print(f"   git commit -m \"feat({story_id}): {story_title}\"")
         print(f"   git push")
         
@@ -8719,8 +8719,9 @@ Respond with ONLY the markdown to add, nothing else."""
             status["committed_at"] = datetime.now().isoformat()
             status_file.write_text(json.dumps(status, indent=2))
             
-            # Stage all changes (including updated status.json)
-            subprocess.run(["git", "add", "-A"], cwd=self.project_root, check=True)
+            # Stage only what the user chose (never a blind `git add -A`)
+            if not self._stage_files_for_commit(status_file):
+                return False
             
             # Commit with comprehensive message
             subprocess.run(["git", "commit", "-m", commit_msg], cwd=self.project_root, check=True)
@@ -8737,7 +8738,7 @@ Respond with ONLY the markdown to add, nothing else."""
         except subprocess.CalledProcessError as e:
             Console.warning(f"Git commit failed: {e}")
             Console.log("You can commit manually with:")
-            print(f"  git add -A")
+            print(f"  git add <files>")
             print(f"  git commit -m '{commit_msg.split(chr(10))[0]}'")
             return False
         except FileNotFoundError:
@@ -8746,6 +8747,80 @@ Respond with ONLY the markdown to add, nothing else."""
         
         return True
     
+    # Untracked files that are never staged automatically (likely secrets)
+    SECRET_FILE_PATTERNS = (".env", ".env.*", "*.env", "*.pem", "*.key", "*.p12", "*.pfx",
+                            "*.keystore", "*.jks", "id_rsa*", "id_ed25519*", "id_ecdsa*",
+                            "credentials*", "*credentials.json", "secrets.*", "*.secret", ".npmrc", ".pypirc",
+                            ".netrc")
+
+    @classmethod
+    def _looks_like_secret(cls, path: str) -> bool:
+        import fnmatch
+        name = Path(path).name.lower()
+        return any(fnmatch.fnmatch(name, pattern) for pattern in cls.SECRET_FILE_PATTERNS)
+
+    def _git_changed_files(self) -> List[tuple]:
+        """(status, path) for every changed, deleted or untracked file, from `git status`."""
+        out = subprocess.run(["git", "status", "--porcelain=v1", "-z", "--untracked-files=all"],
+                             cwd=self.project_root, capture_output=True, text=True, check=True).stdout
+        entries, parts, i = [], out.split("\0"), 0
+        while i < len(parts):
+            entry = parts[i]
+            i += 1
+            if len(entry) < 4:
+                continue
+            code, path = entry[:2], entry[3:]
+            if code[0] in "RC":  # rename/copy: the old path follows as its own field
+                i += 1
+            entries.append((code, path))
+        return entries
+
+    def _stage_files_for_commit(self, status_file: Path) -> bool:
+        """Stage files for `speky commit` without sweeping in unrelated work or secrets.
+
+        If the user already staged files, commit exactly those (plus the item's status.json).
+        Otherwise list the changed files, leave likely-secret untracked files out, and ask
+        before staging. Returns False when the user declines.
+        """
+        status_rel = str(status_file.relative_to(self.project_root))
+        staged = subprocess.run(["git", "diff", "--cached", "--name-only", "-z"], cwd=self.project_root,
+                                capture_output=True, text=True, check=True).stdout.split("\0")
+        staged = [p for p in staged if p]
+        if staged:
+            Console.log(f"Committing the {len(staged)} file(s) you already staged.")
+            if subprocess.run(["git", "check-ignore", "-q", "--", status_rel],
+                              cwd=self.project_root).returncode != 0:
+                subprocess.run(["git", "add", "--", status_rel], cwd=self.project_root, check=True)
+            return True
+
+        changes = self._git_changed_files()
+        held_back = [p for code, p in changes if code == "??" and self._looks_like_secret(p)]
+        to_stage = [p for code, p in changes if p not in held_back]
+        status_ignored = subprocess.run(["git", "check-ignore", "-q", "--", status_rel],
+                                        cwd=self.project_root).returncode == 0
+        if status_rel not in to_stage and not status_ignored:
+            to_stage.append(status_rel)
+        if not to_stage:
+            Console.warning("Nothing to commit.")
+            return False
+
+        print(f"\nFiles to commit ({len(to_stage)}):")
+        for path in to_stage[:30]:
+            print(f"   {path}")
+        if len(to_stage) > 30:
+            print(f"   ... and {len(to_stage) - 30} more")
+        if held_back:
+            Console.warning("Not staged (looks like a secret — add it yourself if you mean to):")
+            for path in held_back:
+                print(f"   {path}")
+
+        if not Console.confirm(f"Stage and commit these {len(to_stage)} file(s)?", default=True):
+            Console.log("Nothing committed. Stage the files you want with `git add`, then run this again "
+                        "— SPEKY commits exactly what is staged.")
+            return False
+        subprocess.run(["git", "add", "--", *to_stage], cwd=self.project_root, check=True)
+        return True
+
     def _generate_commit_message(self, spec_id: str, feature_name: str, status: dict) -> str:
         """Generate comprehensive commit message with context from spec and plan"""
         completed_at = status.get("completed_at", "")
