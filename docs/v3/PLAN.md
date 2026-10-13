@@ -156,8 +156,11 @@ Every row must have a v3 home before v3 replaces v2. "How it changes" is the pro
 ## 3. Validation that converges (fixes the `validate-spec` loop)
 
 ### 3.1 Why v2 never stops finding gaps
-1. `ValidationSession.get_context_for_ai()` (`speky.py:227`) is defined but **never called** — skipped,
-   deferred and accepted gaps never reach the next prompt.
+1. Earlier findings never reach the validation prompt: `ValidationSession.get_context_for_ai()` is only
+   used by the per-gap suggestion helpers, `add_decision()` is never called, and handled action items
+   are deleted from `validation_actions.json` — so the next run raises the same gaps in new words.
+   *(Fixed in v3/build: v2 `validate-spec`/`validate-story` now use the v3 ledger, pass earlier
+   findings to the model, run at temperature 0, skip unchanged specs and stop at the round cap.)*
 2. Open-ended prompt ("Gaps", "Suggestions") with no severity, rubric, or definition of done.
 3. Temperature 0.7 → different findings each run.
 4. AI fixes lengthen the spec → more surface to criticise.

@@ -1175,8 +1175,18 @@ The output must be the full specification document."""
     @staticmethod
     def validate_spec(spec_content: str, project_context: str = "", 
                       related_specs: str = "", tech_stack: str = "",
-                      tech_decisions: str = "", poc_recommendations: str = "") -> str:
+                      tech_decisions: str = "", poc_recommendations: str = "",
+                      already_reviewed: str = "") -> str:
         """Validate a specification and identify gaps - context-aware version"""
+        reviewed_section = ""
+        if already_reviewed:
+            reviewed_section = f"""
+=== ALREADY REVIEWED IN EARLIER ROUNDS ===
+These were raised before and are fixed, accepted or still being handled. Do NOT repeat them,
+rephrase them, or raise a narrower variant of them:
+{already_reviewed}
+=== END ALREADY REVIEWED ===
+"""
         
         context_section = ""
         if project_context or tech_stack:
@@ -1220,8 +1230,14 @@ RELATED SPECS IN PROJECT (check for overlaps/conflicts):
 {tech_decisions_section}
 {poc_section}
 {related_section}
+{reviewed_section}
 SPECIFICATION TO VALIDATE:
 {spec_content}
+
+GAP BAR (strict): report a gap only if an implementer would have to guess AND a wrong guess
+would change user-visible behaviour or stored data. Nice-to-haves, polish and style are
+Suggestions, not Gaps. Report at most 5 gaps, most important first. If there is no new gap,
+write "No new gaps." under ## Gaps/Issues.
 
 VALIDATION RULES:
 1. **MVP Focus**: Is the scope minimal and achievable in 1-2 weeks?
@@ -2893,7 +2909,7 @@ class AIClient:
                 Console.error(str(e))
 
     def query(self, prompt: str, system: str = None, max_tokens: int = None, use_streaming: bool = None,
-              expect_json: bool = False) -> Optional[str]:
+              expect_json: bool = False, temperature: float = None) -> Optional[str]:
         """Query the configured model (falling back through `fallbacks`) and return the text."""
         if system is None:
             system = "You are an expert AI assistant. Be concise and actionable."
@@ -2902,7 +2918,8 @@ class AIClient:
         if use_streaming is None:
             use_streaming = tokens > 8192
         try:
-            return self.router.complete(prompt, system, tokens, self.config["temperature"],
+            temp = self.config["temperature"] if temperature is None else temperature
+            return self.router.complete(prompt, system, tokens, temp,
                                         stream=use_streaming, expect_json=expect_json)
         except LLMError as e:
             Console.error(f"AI request failed: {e}")
@@ -9773,7 +9790,7 @@ Happy building! 🚀
     # -------------------------------------------------------------------------
     # Command: validate-spec
     # -------------------------------------------------------------------------
-    def cmd_validate_spec(self, spec_ref: str, quick: bool = False) -> bool:
+    def cmd_validate_spec(self, spec_ref: str, quick: bool = False, force: bool = False) -> bool:
         """Validate a spec - check quality, find gaps, suggest improvements"""
         if not self._require_init():
             return False
@@ -9810,8 +9827,49 @@ Happy building! 🚀
             if session.related_specs:
                 Console.log(f"Found {len(session.related_specs)} potentially related spec(s)")
         
+        # Convergence (SPEKY v3 ledger): no new round on an unchanged spec, a round cap, and
+        # earlier findings passed to the model so it doesn't raise them again in new words
+        from speky_core import config as v3_config, validation as v3_validation
+        from speky_core.items import Item as V3Item, now as v3_now
+        v3_item = V3Item(spec_file.parent, "spec")
+        v2_state = v3_item.load_status().get("v2_validation", {}) if v3_item.status_path.exists() else {}
+        current_hash = v3_validation.spec_hash(spec_content)
+        max_rounds = int(v3_config.load(self.project_root).get("max_rounds", 2))
+        if not force and v2_state.get("round") and v2_state.get("hash") == current_hash:
+            Console.success(f"Spec unchanged since validation round {v2_state['round']} — nothing new "
+                            "to validate. (--force to run anyway)")
+            return True
+        if not force and v2_state.get("round", 0) >= max_rounds:
+            Console.success(f"Validation has converged: {v2_state['round']} rounds done (cap {max_rounds}). "
+                            "More rounds are unlikely to add value; remaining questions can be settled "
+                            "while implementing. (--force to run anyway)")
+            return True
+        round_no = v2_state.get("round", 0) + 1
+        ledger = v3_validation.Ledger(v3_item)
+        for finding in ledger.findings:
+            if finding.get("source") == "validate-spec" and finding["status"] == "open":
+                finding.update(status="accepted", ruling=f"handled in validate-spec round {finding['round']}",
+                               resolved_at=v3_now())
+        ledger.save()
+        already_reviewed = "\n".join(f"- {f['text']}" for f in ledger.findings
+                                     if f.get("source") == "validate-spec")
+        Console.log(f"Validation round {round_no} of {max_rounds}")
+
         # Run validation with context
-        validation_result = self._validate_spec_content(spec_content, spec_name, session)
+        validation_result = self._validate_spec_content(spec_content, spec_name, session,
+                                                        already_reviewed=already_reviewed)
+        new_gaps = []
+        for gap in validation_result.get("gaps", []):
+            added = ledger.add(gap, "major", source="validate-spec", round_=round_no)
+            if not added.get("duplicate") or added.get("status") == "open":
+                new_gaps.append(gap)
+        suppressed = len(validation_result.get("gaps", [])) - len(new_gaps)
+        if suppressed:
+            Console.log(f"Dropped {suppressed} finding(s) already reviewed in an earlier round")
+        validation_result["gaps"] = new_gaps
+        if v3_item.status_path.exists():
+            v3_item.update_status(v2_validation={"round": round_no, "hash": current_hash,
+                                                 "checked_at": v3_now()})
         validation_result["session"] = session
         
         # Display results - interactive or quick
@@ -9825,7 +9883,7 @@ Happy building! 🚀
     # -------------------------------------------------------------------------
     # Command: validate-story
     # -------------------------------------------------------------------------
-    def cmd_validate_story(self, story_ref: str, quick: bool = False) -> bool:
+    def cmd_validate_story(self, story_ref: str, quick: bool = False, force: bool = False) -> bool:
         """Validate a story - check completeness for complex stories"""
         if not self._require_init():
             return False
@@ -9861,6 +9919,22 @@ Happy building! 🚀
             except:
                 pass
         
+        # Convergence: no new round on an unchanged story, and a round cap
+        from speky_core import config as v3_config, validation as v3_validation
+        from speky_core.items import Item as V3Item, now as v3_now
+        v3_item = V3Item(story_file.parent, "story")
+        v2_state = v3_item.load_status().get("v2_validation", {}) if v3_item.status_path.exists() else {}
+        current_hash = v3_validation.spec_hash(story_content)
+        max_rounds = int(v3_config.load(self.project_root).get("max_rounds", 2))
+        if not force and v2_state.get("round") and v2_state.get("hash") == current_hash:
+            Console.success(f"Story unchanged since validation round {v2_state['round']} — nothing new "
+                            "to validate. (--force to run anyway)")
+            return True
+        if not force and v2_state.get("round", 0) >= max_rounds:
+            Console.success(f"Validation has converged: {v2_state['round']} rounds done (cap {max_rounds}). "
+                            "(--force to run anyway)")
+            return True
+
         # Run AI validation
         Console.section("AI Analysis")
         validation_response = self.ai.query(Prompts.validate_story(
@@ -9868,7 +9942,10 @@ Happy building! 🚀
             project_context=product_context,
             related_specs=related_specs_content,
             tech_stack=tech_stack
-        ))
+        ), temperature=0)
+        if validation_response and v3_item.status_path.exists():
+            v3_item.update_status(v2_validation={"round": v2_state.get("round", 0) + 1,
+                                                 "hash": current_hash, "checked_at": v3_now()})
         
         if not validation_response:
             Console.error("Failed to get AI validation")
@@ -10565,7 +10642,7 @@ Add error handling and edge cases to acceptance criteria.
         return None
     
     def _validate_spec_content(self, content: str, spec_name: str, 
-                                session: ValidationSession = None) -> dict:
+                                session: ValidationSession = None, already_reviewed: str = "") -> dict:
         """Validate spec content and return detailed results - context-aware"""
         results = {
             "is_valid": True,
@@ -10657,8 +10734,9 @@ Target Users: {product.get('target_users', '')}"""
             related_specs=related_specs,
             tech_stack=tech_stack,
             tech_decisions=tech_decisions,
-            poc_recommendations=poc_recommendations
-        ))
+            poc_recommendations=poc_recommendations,
+            already_reviewed=already_reviewed
+        ), temperature=0)
         
         if analysis:
             # Parse AI analysis
@@ -20868,11 +20946,15 @@ manifests use --from-project automatically.""")
     validate_parser = subparsers.add_parser("validate-spec", help="Validate a spec for quality and completeness")
     validate_parser.add_argument("spec_ref", help="Spec ID (e.g., 001) or file path")
     validate_parser.add_argument("--quick", "-q", action="store_true", help="Quick mode - show summary without interactive review")
+    validate_parser.add_argument("--force", action="store_true",
+                                 help="Run another round even if the spec is unchanged or the round cap is reached")
     
     # validate-story
     validate_story_parser = subparsers.add_parser("validate-story", help="Validate a story for completeness (AI-powered)")
     validate_story_parser.add_argument("story_ref", help="Story ID (e.g., F001) or file path")
     validate_story_parser.add_argument("--quick", "-q", action="store_true", help="Quick mode - show summary without interactive review")
+    validate_story_parser.add_argument("--force", action="store_true",
+                                       help="Run another round even if unchanged or the round cap is reached")
     
     # adopt (supports both specs and stories)
     adopt_parser = subparsers.add_parser("adopt", help="Adopt an IDE-created spec or story into SPEKY tracking")
@@ -21076,9 +21158,9 @@ manifests use --from-project automatically.""")
         elif args.command == "backlog":
             success = speky.cmd_backlog()
         elif args.command == "validate-spec":
-            success = speky.cmd_validate_spec(args.spec_ref, quick=args.quick)
+            success = speky.cmd_validate_spec(args.spec_ref, quick=args.quick, force=args.force)
         elif args.command == "validate-story":
-            success = speky.cmd_validate_story(args.story_ref, quick=args.quick)
+            success = speky.cmd_validate_story(args.story_ref, quick=args.quick, force=args.force)
         elif args.command == "adopt":
             success = speky.cmd_adopt(args.item_id, item_type=args.item_type, skip_validation=args.skip_validation)
         elif args.command == "import":
