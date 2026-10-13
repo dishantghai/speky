@@ -71,6 +71,11 @@ def run_rubric(project: Project, item: Item, cfg: dict) -> List[dict]:
           f"At most {limit} [NEEDS CLARIFICATION] markers; make informed guesses for the rest and "
           "list them under ## Assumptions", f"{len(markers)} marker(s)")
 
+    from .templates import unfilled_placeholders
+    placeholders = unfilled_placeholders(text)
+    check("placeholders", not placeholders, "blocker",
+          "Replace the template placeholders with real content", ", ".join(placeholders))
+
     deps = item.info()["dependencies"]
     unknown = [d for d in deps if not project.try_find(d)]
     check("dependencies", not unknown, "blocker", "Every dependency must be an existing item",

@@ -77,3 +77,15 @@ CAPABILITY = """# {name}
 
 ## Requirements
 """
+
+
+# Placeholder text from the templates above; a document still containing any of it is unfinished
+PLACEHOLDERS = ["<first requirement>", "<starting state>", "<action>", "<observable result>",
+                "<action that fails>", "<what the user sees>", "The system SHALL ...",
+                "<!-- The system SHALL ... -->"]
+
+
+def unfilled_placeholders(text: str) -> list:
+    import re
+    visible = re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
+    return [p for p in PLACEHOLDERS if not p.startswith("<!--") and p in visible]

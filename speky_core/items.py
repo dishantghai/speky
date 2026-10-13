@@ -168,7 +168,14 @@ class Project:
                 m = pattern.match(d.name) if d.is_dir() else None
                 if m:
                     highest = max(highest, int(m.group(1)))
-        number = f"{prefix}{highest + 1:03d}"
+        # High-water mark: a deleted item's number is never handed out again
+        counters_path = self.dir / "ids.json"
+        counters = json.loads(counters_path.read_text()) if counters_path.exists() else {}
+        key = prefix or "spec"
+        next_n = max(highest, int(counters.get(key, 0))) + 1
+        counters[key] = next_n
+        write_json(counters_path, counters)
+        number = f"{prefix}{next_n:03d}"
         if self.config.get("id_style") == "hash":
             number += "x" + secrets.token_hex(2)  # branch-safe suffix; the letter keeps the number parseable
         return number

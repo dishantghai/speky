@@ -41,6 +41,8 @@ jobs:
             --include-package=anthropic \
             --include-package=dotenv \
             --include-package=requests \
+            --include-package=speky_core \
+            --include-package-data=speky_core \
             --follow-imports \
             --assume-yes-for-downloads \
             --remove-output \

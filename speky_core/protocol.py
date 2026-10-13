@@ -26,11 +26,20 @@ def state(project: Project) -> dict:
             "cycles": graph.cycles(project), "config": project.config}
 
 
+def _rel(path) -> str:
+    from pathlib import Path
+    path = Path(path)
+    try:
+        return str(path.relative_to(Path.cwd()))
+    except ValueError:
+        return str(path)
+
+
 def _action(action, item: Optional[Item], why, instruction, skill=None, commands=(), read=(),
             done_when=""):
     return {"action": action, "item": item.id if item else None, "why": why,
             "instruction": instruction, "skill": skill, "commands": list(commands),
-            "read": [str(p) for p in read], "done_when": done_when}
+            "read": [_rel(p) for p in read], "done_when": done_when}
 
 
 def action_for(project: Project, item: Item) -> dict:
@@ -59,8 +68,10 @@ def action_for(project: Project, item: Item) -> dict:
                        commands=["speky ready --json"], done_when="dependencies are completed")
 
     status = info["status"]
-    if status in ("draft", "ready") and not item.read_doc().strip():
-        return _action("propose", item, f"{rel_doc} is empty.",
+    from .templates import unfilled_placeholders
+    doc_text = item.read_doc()
+    if status in ("draft", "ready") and (not doc_text.strip() or unfilled_placeholders(doc_text)):
+        return _action("propose", item, f"{rel_doc} is empty or still the template.",
                        "Write the change: why, capabilities, non-goals, requirements `### R1:` with "
                        "WHEN/THEN scenarios. Ask at most 5 questions, one at a time, each with your "
                        "recommended answer; put informed guesses under ## Assumptions.",

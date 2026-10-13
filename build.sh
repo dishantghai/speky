@@ -62,6 +62,8 @@ python3 -m nuitka \
   --include-package=yaml \
   --nofollow-import-to=google.genai \
   --include-module=speky_llm \
+  --include-package=speky_core \
+  --include-package-data=speky_core \
   --include-module=traceai_config \
   --follow-imports \
   --assume-yes-for-downloads \

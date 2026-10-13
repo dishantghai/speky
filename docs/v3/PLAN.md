@@ -446,7 +446,7 @@ updated) in two different harnesses, with zero v2 capabilities lost (checked aga
 | Question | Decision |
 |---|---|
 | First harnesses | **Claude Code + Codex** (hook-capable + AGENTS.md/skills profiles). Cursor, Gemini CLI next. |
-| Code location | New package **`speky/`** in this repo, reusing `speky_llm.py`. v2 keeps shipping from `speky.py` until parity (§2.8). |
+| Code location | New package **`speky_core/`** in this repo (a `speky/` package would shadow `speky.py`, the v2 entry point). v3 commands are subcommands of the same `speky` CLI; v2 commands keep working on the same folders. |
 | ID style | **Sequential by default**, hash-suffixed IDs optional (teams/branches). |
 | Requirement format | **BMAD five-field kernel** (Why, Capabilities, Constraints, Non-goals, Success signal) for the change proposal; **OpenSpec `Requirement`/`Scenario`** with stable IDs for requirements. |
 

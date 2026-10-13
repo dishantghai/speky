@@ -3037,6 +3037,8 @@ class IDEIntegration:
             target_ide: Specific IDE to update (None = use self.ide for backward compat)
         """
         ide_to_update = target_ide or self.ide
+        if ide_to_update in _v3_managed_ides(self.project_root):
+            return  # `speky setup` owns this file now; v2's large rules block must not come back
         ide_config = self.IDE_CONFIGS.get(ide_to_update)
         
         if not ide_config:
@@ -7239,6 +7241,10 @@ Stay within phase scope. Check phase excludes before implementing."""
             status = json.loads(status_file.read_text())
             status["status"] = ItemStatus.IN_PROGRESS.value
             status["implementation_started"] = datetime.now().isoformat()
+            if not status.get("base_sha"):
+                head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.project_root,
+                                      capture_output=True, text=True)
+                status["base_sha"] = head.stdout.strip() if head.returncode == 0 else "NO_VCS"
             status_file.write_text(json.dumps(status, indent=2))
         
         Console.success("IDE context updated with full context chain")
@@ -20551,8 +20557,33 @@ def _global_options_parser() -> argparse.ArgumentParser:
     return parent
 
 
+def _v3_commands() -> set:
+    try:
+        from speky_core.cli import COMMANDS
+        return COMMANDS
+    except ImportError:
+        return set()
+
+
+def _v3_managed_ides(project_root: Path) -> set:
+    """v2 IDE targets whose instruction file is now managed by `speky setup` (v3)."""
+    path = Path(project_root) / SPEKY_DIR / "speky.yaml"
+    if not path.exists():
+        return set()
+    try:
+        import yaml
+        harnesses = (yaml.safe_load(path.read_text()) or {}).get("harnesses") or []
+    except Exception:
+        return set()
+    return {"claude-code"} & set(harnesses)
+
+
 def main():
     """Main CLI entry point"""
+    # SPEKY v3 commands (agent protocol) live in speky_core; everything else is v2
+    if len(sys.argv) > 1 and sys.argv[1] in _v3_commands():
+        from speky_core.cli import main as v3_main
+        sys.exit(v3_main(sys.argv[1:]))
     parser = argparse.ArgumentParser(
         prog="speky",
         description="SPEKY v2: AI-Assisted Scalable Engineering Framework",
@@ -20581,6 +20612,10 @@ Host mode (the calling agent is SPEKY's model — no API key needed):
   host status                    Show prompts waiting for an answer
   host show [ID]                 Print a waiting prompt
   host answer ID --file F        Deliver an answer (or pipe it on stdin)
+
+SPEKY v3 (agent protocol — `speky next --help` etc.; add --json for one JSON document):
+  new spec|story, state, ready, next, check, finding, start, evidence, verify, archive,
+  decide, remember, adr, term, gate, link, prime, setup, migrate, set   (docs/v3/CONTRACTS.md)
 
 Exit codes: 0 ok · 1 failed · 2 bad usage · 4 needs an --answer · 130 interrupted
 
