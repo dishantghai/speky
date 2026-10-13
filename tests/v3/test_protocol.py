@@ -70,3 +70,9 @@ def test_prime_is_small_and_names_the_next_action(project):
     assert len(text) < 6000  # ~1.5k tokens
     hook = json.loads(protocol.prime_hook_json(project))
     assert hook["hookSpecificOutput"]["hookEventName"] == "SessionStart"
+
+
+def test_prime_points_to_v2_project_knowledge(project):
+    (project.dir / "context").mkdir()
+    (project.dir / "context" / "tech_decisions.md").write_text("Use WebContentsView")
+    assert "`.speky/context/tech_decisions.md`" in protocol.prime(project)

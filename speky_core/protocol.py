@@ -205,6 +205,15 @@ def prime(project: Project, limit_items: int = 5) -> str:
     if st["open_gates"]:
         lines.append("- Open gates: " + ", ".join(f"{g['item']}/{g['id']} {g['reason']}"
                                                   for g in st["open_gates"]))
+    context_dir = project.dir / "context"
+    refs = [f"`.speky/context/{n}`" for n in ("tech_decisions.md", "product.md", "architecture.md",
+                                              "design_system.md") if (context_dir / n).exists()]
+    if (project.dir / "adr").is_dir():
+        refs.append("`.speky/adr/`")
+    if refs:
+        lines += ["", "## Project knowledge",
+                  "Before choosing a library, a pattern or a UI approach, read " + ", ".join(refs)
+                  + " — they record decisions the code can't show."]
     mem = journal.memories(project)
     if mem:
         lines += ["", "## Project memory"] + [f"- {m}" for m in mem[-20:]]
