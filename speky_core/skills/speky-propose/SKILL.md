@@ -22,8 +22,8 @@ Goal: a short contract someone could build without guessing — and no longer th
    - At most 3 `[NEEDS CLARIFICATION: ...]` markers; guess the rest and list them as assumptions.
 4. Requirements describe behaviour, not implementation. No class names, no library choices
    (those go in plan.md). If behaviour of an existing capability changes, write
-   `deltas/<capability>.md` with `## ADDED|MODIFIED|REMOVED Requirements`
-   (see `.speky/capabilities/` for current IDs).
+   `deltas/<capability>.md` now or before archiving (format: the speky-verify skill, step 3;
+   current IDs: `.speky/capabilities/`).
 5. Record assumptions and decisions: `speky decide "..." --type assumption --ref <id>`.
 6. Run `speky check <id> --json` and fix every blocker it reports.
 

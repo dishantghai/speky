@@ -151,3 +151,56 @@ def test_forced_archive_records_reason(project):
     result = verification.archive(project, item, force_reason="spike, nothing to verify")
     assert result["status"] == "archived"
     assert item.load_status()["archive_forced"] == "spike, nothing to verify"
+
+
+def test_added_requirements_may_use_change_ids(repo):
+    item = spec(repo)
+    (item.path / "deltas").mkdir()
+    (item.path / "deltas" / "textkit.md").write_text(
+        "## ADDED Requirements\n### R1: Slugify\nSHALL slug.\n#### Scenario: s\n- WHEN x\n- THEN y\n")
+    _verified(repo, item)
+    assert verification.archive(repo, item)["merged"][0]["added"] == ["textkit-R1"]
+
+
+def test_unreadable_or_empty_delta_is_an_error_not_a_silent_skip(repo):
+    item = spec(repo)
+    (item.path / "deltas").mkdir()
+    (item.path / "deltas" / "textkit.md").write_text("## ADDED Requirements\n### Slugify text\nx\n")
+    _verified(repo, item)
+    with pytest.raises(SpekyError) as e:
+        verification.archive(repo, item)
+    assert e.value.code == "unreadable_delta_heading" and "Delta format" in e.value.fix
+    (item.path / "deltas" / "textkit.md").write_text("Some notes, no sections\n")
+    with pytest.raises(SpekyError) as e:
+        verification.archive(repo, item)
+    assert e.value.code == "empty_delta"
+
+
+def test_archive_twice_is_refused(repo):
+    item = spec(repo)
+    _verified(repo, item)
+    verification.archive(repo, item)
+    with pytest.raises(SpekyError) as e:
+        verification.archive(repo, item)
+    assert e.value.code == "already_archived"
+
+
+def test_test_caches_do_not_make_verification_stale(repo):
+    item = spec(repo)
+    _verified(repo, item)
+    cache = repo.root / "__pycache__"
+    cache.mkdir()
+    (cache / "app.cpython-313.pyc").write_bytes(b"\x00")
+    (repo.root / ".pytest_cache").mkdir()
+    (repo.root / ".pytest_cache" / "v").write_text("x")
+    assert verification.archive(repo, item)["status"] == "archived"
+
+
+def test_untracked_file_content_change_makes_verification_stale(repo):
+    item = spec(repo)
+    (repo.root / "new_module.py").write_text("x = 1\n")
+    _verified(repo, item)
+    (repo.root / "new_module.py").write_text("x = 2\n")
+    with pytest.raises(SpekyError) as e:
+        verification.archive(repo, item)
+    assert e.value.code == "stale_verification"

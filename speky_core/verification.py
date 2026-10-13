@@ -19,6 +19,10 @@ from .templates import CAPABILITY
 from .validation import Ledger
 
 EVIDENCE_STATUSES = ("met", "partial", "missing", "contradicts")
+DELTA_FORMAT_HINT = ("Delta format: `## ADDED Requirements` then `### Requirement: <title>` (or `### R1: "
+                     "<title>`) with a `#### Scenario:` (WHEN/THEN); `## MODIFIED Requirements` / "
+                     "`## REMOVED Requirements` then `### <capability>-R<n>: <title>` using IDs from "
+                     ".speky/capabilities/<capability>/spec.md.")
 
 
 # ---------------------------------------------------------------------------- start
@@ -141,6 +145,13 @@ def plan_merge(project: Project, item: Item) -> List[dict]:
         cap = delta_file.stem
         _validate_cap_name(cap)
         delta = md.parse_delta(delta_file.read_text())
+        if delta.unparsed:
+            raise SpekyError("unreadable_delta_heading",
+                             f"{delta_file}: cannot read " + "; ".join(delta.unparsed),
+                             DELTA_FORMAT_HINT)
+        if not (delta.added or delta.modified or delta.removed):
+            raise SpekyError("empty_delta", f"{delta_file} has no requirements under "
+                             "## ADDED / ## MODIFIED / ## REMOVED Requirements.", DELTA_FORMAT_HINT)
         existing = {r.id: r for r in capability_requirements(project, cap)}
         for r in delta.modified + delta.removed:
             if not r.id or r.id not in existing:
@@ -196,6 +207,10 @@ def _apply_merge(project: Project, plan: dict, source_id: str) -> List[str]:
 
 def archive(project: Project, item: Item, force_reason: str = None) -> dict:
     status = item.load_status()
+    if status.get("status") == "archived":
+        raise SpekyError("already_archived", f"{item.id} is already archived; its deltas were merged "
+                         f"on {status.get('archived_at', '?')}.",
+                         "Change behaviour again through a new item (`speky new ...`), not by re-archiving.")
     verification = status.get("verification") or {}
     tree = vcs.tree_fingerprint(project.root)
     if not force_reason:

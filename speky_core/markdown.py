@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$")
 CHANGE_REQ_RE = re.compile(r"^###\s+(R\d+)\s*:\s*(.+?)\s*$")
 CAP_REQ_RE = re.compile(r"^###\s+([a-z0-9][a-z0-9-]*-R\d+)\s*:\s*(.+?)\s*$")
-NEW_REQ_RE = re.compile(r"^###\s+Requirement\s*:\s*(.+?)\s*$")
+NEW_REQ_RE = re.compile(r"^###\s+(?:Requirement|R\d+)\s*:\s*(.+?)\s*$")
 SCENARIO_RE = re.compile(r"^####\s+Scenario\s*:\s*(.+?)\s*$")
 CLARIFY_RE = re.compile(r"\[NEEDS CLARIFICATION[^\]]*\]", re.IGNORECASE)
 COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
@@ -123,12 +123,18 @@ class Delta:
     modified: List[Requirement] = field(default_factory=list)
     removed: List[Requirement] = field(default_factory=list)
     purpose: str = ""
+    unparsed: List[str] = field(default_factory=list)  # headings SPEKY could not read
 
 
 def parse_delta(text: str) -> Delta:
     delta = Delta()
-    parts = sections(text)
+    parts = sections(strip_comments(text))
     for name, body in parts.items():
+        if name.split()[0] in ("added", "modified", "removed"):
+            for line in body.splitlines():
+                if line.startswith("### ") and not (CAP_REQ_RE.match(line) or
+                                                    (name.startswith("added") and NEW_REQ_RE.match(line))):
+                    delta.unparsed.append(f"{name}: {line.strip()}")
         if name.startswith("added"):
             delta.added = parse_requirements(body, CAP_REQ_RE)
         elif name.startswith("modified"):

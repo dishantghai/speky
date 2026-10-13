@@ -19,9 +19,26 @@ description: Use when `speky next` says archive, or before saying a SPEKY change
 2. If you can, review the diff (`changed_files`) in a fresh context against each requirement:
    missing, partial, contradicts the spec, or unrequested extra work. Unrequested work is either
    recorded as a new item or removed.
-3. Living specs: if this change added or changed behaviour, make sure
-   `deltas/<capability>.md` says so (`## ADDED|MODIFIED|REMOVED Requirements`, IDs from
-   `.speky/capabilities/<capability>/spec.md`).
+3. Living specs: if this change added or changed behaviour, write
+   `<item folder>/deltas/<capability>.md` (capability = lowercase-kebab area name, e.g. `textkit`):
+   ```markdown
+   ## ADDED Requirements
+   ### Requirement: Slugify text
+   The library SHALL turn text into a URL slug.
+   #### Scenario: Words and punctuation
+   - WHEN slugify("Hello, World!") is called
+   - THEN it returns "hello-world"
+
+   ## MODIFIED Requirements
+   ### textkit-R2: <title, using the ID from .speky/capabilities/textkit/spec.md>
+   <full new text + scenarios>
+
+   ## REMOVED Requirements
+   ### textkit-R3: <title>
+   Reason: <why>
+   ```
+   ADDED requirements get their `<capability>-R<n>` ID when archived. A heading SPEKY can't read
+   is an error, not a silent skip.
 4. `speky archive <id> --json` — merges deltas into `.speky/capabilities/` and closes the item.
    It refuses if the code changed since verification: verify again.
 5. Report: requirements met, evidence, the verify command result, files changed, capabilities
