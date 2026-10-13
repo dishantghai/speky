@@ -1670,7 +1670,7 @@ SPEKY supports multiple IDEs simultaneously. Configure which IDEs receive auto-g
 - `windsurf` → `.windsurfrules`
 - `cursor` → `.cursorrules`
 - `claude-code` → `CLAUDE.md`
-- `vscode` → `.vscode/settings.json`
+- `vscode` → `.github/copilot-instructions.md` (read by GitHub Copilot in VS Code)
 - `antigravity` → `.agent/rules/` (multi-file, max 8000 chars each)
   - `01-speky-core.md` - Core workflow rules
   - `02-speky-structure.md` - Project structure
