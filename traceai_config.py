@@ -45,7 +45,7 @@ def initialize_traceai(project_name: str = "SPEKY") -> Optional[object]:
         
     except ImportError as e:
         print(f"⚠️  TraceAI packages not installed: {e}")
-        print('   Run: pip install "fi-instrumentation-otel[grpc]" traceai-openai traceai-anthropic traceai-google-genai')
+        print('   Run: pip install "fi-instrumentation-otel[grpc]" traceai-openai traceai-anthropic')
         return None
     except Exception as e:
         print(f"⚠️  Failed to initialize TraceAI: {e}")

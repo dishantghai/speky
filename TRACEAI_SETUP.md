@@ -23,7 +23,7 @@ pip install -r requirements.txt
 Or install them individually:
 
 ```bash
-pip install "fi-instrumentation-otel[grpc]" traceai-openai traceai-anthropic traceai-google-genai
+pip install "fi-instrumentation-otel[grpc]" traceai-openai traceai-anthropic
 ```
 
 ### 2. Get Your API Keys
@@ -60,7 +60,7 @@ TraceAI is automatically initialized when you run any SPEKY command:
 Currently instrumented:
 - ✅ **OpenAI** and every OpenAI-compatible provider (OpenRouter, Nebius, OpenCode Go, Groq, Ollama, ...) — `traceai-openai`
 - ✅ **Anthropic** calls — `traceai-anthropic`
-- ✅ **Google Gemini** calls — `traceai-google-genai`
+- ✅ **Google Gemini** calls — via `traceai-openai` (SPEKY reaches Gemini through its OpenAI-compatible endpoint)
 - ❌ `claude-code/*` (runs the `claude` CLI) and `host` mode (no LLM call) are not traced
 
 ### Silent Fallback
@@ -115,7 +115,7 @@ speky status  # Should show "✅ TraceAI observability enabled" if configured
 
 If you see import errors related to TraceAI:
 ```bash
-pip install --upgrade "fi-instrumentation-otel[grpc]" traceai-openai traceai-anthropic traceai-google-genai
+pip install --upgrade "fi-instrumentation-otel[grpc]" traceai-openai traceai-anthropic
 ```
 
 ### Wrong API keys

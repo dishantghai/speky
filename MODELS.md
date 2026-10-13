@@ -6,6 +6,7 @@ LiteLLM-style as **`provider/model`**:
 | Example ref | What it uses |
 |---|---|
 | `anthropic/claude-sonnet-4-5` | Anthropic API (`ANTHROPIC_API_KEY`) |
+| `gemini/gemini-2.5-pro` | Google Gemini via its OpenAI-compatible endpoint (`GEMINI_API_KEY`) |
 | `openrouter/moonshotai/kimi-k2` | OpenRouter (`OPENROUTER_API_KEY`) |
 | `nebius/deepseek-ai/DeepSeek-V3-0324` | Nebius Token Factory (`NEBIUS_API_KEY`) |
 | `opencode-go/glm-5.2` | OpenCode Go subscription (`OPENCODE_API_KEY`) |

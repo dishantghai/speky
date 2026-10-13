@@ -30,7 +30,8 @@ PROJECT_CONFIG_NAME = "models.yaml"
 # Provider types:
 #   openai      — any OpenAI-compatible /chat/completions endpoint
 #   anthropic   — Anthropic Messages API (or an Anthropic-compatible base_url)
-#   gemini      — Google Gemini via google-genai
+#   gemini      — Google Gemini via the google-genai SDK (optional; the built-in
+#                 `gemini` provider uses Gemini's OpenAI-compatible endpoint instead)
 #   claude-code — the local `claude` CLI, authenticated with your Claude subscription
 #   host        — no LLM call: the prompt is handed to the agent that runs SPEKY (host mode)
 BUILTIN_PROVIDERS: Dict[str, dict] = {
@@ -38,7 +39,11 @@ BUILTIN_PROVIDERS: Dict[str, dict] = {
                     "default_model": "claude-sonnet-4-20250514"},
     "openai":      {"type": "openai", "api_key_env": "OPENAI_API_KEY",
                     "default_model": "gpt-4o"},
-    "gemini":      {"type": "gemini", "api_key_env": "GEMINI_API_KEY",
+    # Gemini's official OpenAI-compatible endpoint, so binaries need no google-genai
+    # (its generated types module is too big for MSVC). For the native SDK, define a
+    # provider with `type: gemini` and install google-genai.
+    "gemini":      {"type": "openai", "api_key_env": "GEMINI_API_KEY",
+                    "base_url": "https://generativelanguage.googleapis.com/v1beta/openai/",
                     "default_model": "gemini-2.0-flash"},
     "openrouter":  {"type": "openai", "base_url": "https://openrouter.ai/api/v1",
                     "api_key_env": "OPENROUTER_API_KEY",
@@ -395,7 +400,7 @@ class LLMRouter:
             return list(p["models"])
         try:
             if p["type"] == "openai":
-                return sorted(m.id for m in self._client(name).models.list())
+                return sorted(m.id.split("models/", 1)[-1] for m in self._client(name).models.list())
             if p["type"] == "anthropic":
                 return [m.id for m in self._client(name).models.list(limit=100)]
             if p["type"] == "gemini":

@@ -60,6 +60,7 @@ python3 -m nuitka \
   --include-package=requests \
   --include-package=openai \
   --include-package=yaml \
+  --nofollow-import-to=google.genai \
   --include-module=speky_llm \
   --include-module=traceai_config \
   --follow-imports \

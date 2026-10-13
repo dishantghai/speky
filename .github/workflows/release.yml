@@ -38,7 +38,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install "nuitka[onefile]" ordered-set
-          pip install anthropic python-dotenv requests openai google-genai pyyaml
+          pip install anthropic python-dotenv requests openai pyyaml
 
       - name: Build binary (Unix)
         if: runner.os != 'Windows'
@@ -52,7 +52,7 @@ jobs:
             --include-package=dotenv \
             --include-package=requests \
             --include-package=openai \
-            --include-package=google \
+            --nofollow-import-to=google.genai \
             --include-package=yaml \
             --include-module=speky_llm \
             --include-module=traceai_config \
@@ -73,7 +73,7 @@ jobs:
             --include-package=dotenv `
             --include-package=requests `
             --include-package=openai `
-            --include-package=google `
+            --nofollow-import-to=google.genai `
             --include-package=yaml `
             --include-module=speky_llm `
             --include-module=traceai_config `
