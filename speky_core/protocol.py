@@ -144,6 +144,16 @@ def action_for(project: Project, item: Item) -> dict:
     return _action("idle", item, f"Unknown status '{status}'.", "Fix status.json by hand.")
 
 
+def backlog_pending(project: Project) -> int:
+    """Deferred items in v2's backlog (`speky backlog` reviews them)."""
+    path = project.dir / "backlog.json"
+    try:
+        items = json.loads(path.read_text()) if path.exists() else []
+    except json.JSONDecodeError:
+        return 0
+    return len([i for i in items if isinstance(i, dict) and i.get("status", "pending") == "pending"])
+
+
 def next_action(project: Project, ref: str = None) -> dict:
     if ref:
         return action_for(project, project.find(ref))
@@ -157,10 +167,15 @@ def next_action(project: Project, ref: str = None) -> dict:
              and any(g.get("status") == "open" for g in i.info()["gates"])]
     if gated:
         return action_for(project, gated[0])
-    return _action("idle", None, "No open work is ready.",
-                   "Ask the user what to build next, size it, and create it with "
-                   "`speky new spec \"<title>\"` (or `speky new story \"<title>\" --type bug`).",
-                   skill="speky", commands=['speky new spec "<title>" --size change'],
+    deferred = backlog_pending(project)
+    why = "No open work is ready." + (f" {deferred} deferred backlog item(s) wait for review "
+                                      "(`speky backlog`)." if deferred else "")
+    return _action("idle", None, why,
+                   "Ask the user what to build next (offer the deferred backlog if any), size it, "
+                   "and create it with `speky new spec \"<title>\"` (or `speky new story \"<title>\" "
+                   "--type bug`).",
+                   skill="speky", commands=['speky new spec "<title>" --size change']
+                   + (["speky backlog"] if deferred else []),
                    done_when="a new item exists")
 
 

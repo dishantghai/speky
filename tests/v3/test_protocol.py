@@ -76,3 +76,11 @@ def test_prime_points_to_v2_project_knowledge(project):
     (project.dir / "context").mkdir()
     (project.dir / "context" / "tech_decisions.md").write_text("Use WebContentsView")
     assert "`.speky/context/tech_decisions.md`" in protocol.prime(project)
+
+
+def test_idle_mentions_v2_backlog(project):
+    (project.dir / "backlog.json").write_text(json.dumps(
+        [{"name": "a", "status": "pending"}, {"name": "b", "status": "promoted"}]))
+    nxt = protocol.next_action(project)
+    assert nxt["action"] == "idle" and "1 deferred backlog item" in nxt["why"]
+    assert "speky backlog" in nxt["commands"]
