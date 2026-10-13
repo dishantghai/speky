@@ -93,6 +93,39 @@ speky init "A grocery app for families" --answers answers.yaml
 | 4 | A question needs an `--answer` (non-interactive mode) |
 | 130 | Interrupted |
 
+## Existing projects: `init --from-project`
+
+In a repo that already has code and docs, a person shouldn't have to re-type what
+the README already says. `speky init --from-project` reads the project and answers
+init's questions itself:
+
+| Init step | Where the answer comes from |
+|---|---|
+| Product idea | Optional. Taken from the README title and first paragraph |
+| Research documents | `README*`, `CLAUDE.md`, `AGENTS.md`, `.cursorrules`/`.windsurfrules`, root `*.md`, `docs/`, `design/`, `specs/`, plus the folder structure. A snapshot goes to `.speky/imports/initial_research/` |
+| Clarifying questions | The model answers each one from that evidence and names its sources. A question the evidence can't answer is left blank, never invented |
+| Tech stack | Read directly from `package.json`, `pyproject.toml`/`requirements.txt`, `go.mod`, `Cargo.toml`, `pubspec.yaml`, `Gemfile`, Maven/Gradle files, Docker/compose, `vercel.json`, `netlify.toml`, `fly.toml` and similar. The analysis fills any gaps |
+| "Create specs from research?" | Skipped when unattended, since an existing project has probably built those features already. Add `--answer "Your choice=MVP"` to create them anyway |
+| "Import POC code?" | Not asked: the project is the code |
+
+At a terminal you still see every question, with the project's answer as the
+default: press Enter to accept, or type over it. Unattended, the project's answers
+are used as they are.
+
+It also runs **automatically** when SPEKY is unattended (no terminal, `-y`, or an
+agent) in a folder that already has docs or manifests. Agents never get stuck on
+"Do you have existing docs?".
+
+```bash
+speky init --from-project                 # existing repo, SPEKY's configured model
+speky init --from-project --host          # existing repo, the calling agent is the model
+speky init --from-project                 # already initialized: refresh the product profile and
+                                          # tech stack; specs, stories and phases are kept
+```
+
+Host mode suits this best. The agent answering the prompts can read the actual code,
+not just the docs, and the prompts tell it to.
+
 ## Host mode
 
 In host mode SPEKY doesn't call an LLM. When it needs one, it:

@@ -77,6 +77,7 @@ act as SPEKY's model itself (host mode, no API key needed):
 ```bash
 speky spec "Login" -y --answer "Add to phase=phase-1"   # no prompts
 speky spec "Login" --host -y                            # the calling agent answers SPEKY's prompts
+speky init --from-project                               # existing repo: fill init from its README/docs/manifests
 speky host guide                                        # instructions to give your agent
 ```
 
