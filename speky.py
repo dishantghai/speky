@@ -3043,14 +3043,7 @@ class IDEIntegration:
             Console.warning(f"Unknown IDE: {ide_to_update}")
             return
         
-        # Always use full SPEKY rules (implementation mode uses same rules + task context)
-        speky_rules = self._get_speky_rules(active_task)
-        
-        # Get IDE-specific header
-        header = self._get_ide_header(ide_to_update)
-        
-        # Combine SPEKY rules with content
-        full_content = header + speky_rules + "\n\n---\n\n## Project Context\n\n" + content
+        full_content = self.build_rules_content(ide_to_update, content, active_task)
         
         # Handle file vs folder-based IDEs
         if ide_config["type"] == "folder":
@@ -3065,12 +3058,79 @@ class IDEIntegration:
         for ide in self.enabled_ides:
             self.update_context_file(content, active_task, target_ide=ide)
     
+    def build_rules_content(self, ide_name: str, content: str, active_task: str = "") -> str:
+        """The SPEKY-managed text for an IDE rules file (what goes between the markers)."""
+        return (self._get_ide_header(ide_name) + self._get_speky_rules(active_task)
+                + "\n\n---\n\n## Project Context\n\n" + content)
+
+    # Single-file rules (CLAUDE.md, .cursorrules, ...) are shared with the user: SPEKY owns only
+    # the text between these markers and leaves everything else in the file alone.
+    BLOCK_BEGIN = "<!-- BEGIN SPEKY MANAGED BLOCK: text between these markers is rewritten by speky -->"
+    BLOCK_END = "<!-- END SPEKY MANAGED BLOCK -->"
+    # Text of the old "USER RULES" template, used to find what users added to pre-marker files
+    _LEGACY_USER_RULES_TEMPLATE = [
+        "Add your custom IDE rules below this line. They will be preserved when SPEKY updates.",
+        "Example:", "- Always use TypeScript strict mode", "- Prefer async/await over promises",
+        "- Use descriptive variable names",
+    ]
+
+    @classmethod
+    def extract_managed_block(cls, text: str) -> Optional[str]:
+        """Content between the SPEKY markers, or None when the file has no managed block."""
+        start, end = text.find(cls.BLOCK_BEGIN), text.find(cls.BLOCK_END)
+        if start == -1 or end == -1 or end < start:
+            return None
+        return text[start + len(cls.BLOCK_BEGIN):end].strip("\n")
+
+    @staticmethod
+    def _is_legacy_speky_file(text: str) -> bool:
+        """A rules file written by SPEKY before managed blocks existed (it owned the whole file)."""
+        return "# SPEKY Project Rules" in text and "# USER RULES" in text
+
+    @classmethod
+    def _legacy_user_rules(cls, text: str) -> str:
+        """Rules a user added under the old '# USER RULES' heading, minus the template lines."""
+        start = text.find("# USER RULES")
+        end = text.find("\n---\n\n## Project Context", start)
+        section = text[start + len("# USER RULES"):end if end != -1 else len(text)]
+        lines = [l for l in section.splitlines() if l.strip() not in cls._LEGACY_USER_RULES_TEMPLATE]
+        return "\n".join(lines).strip()
+
     def _write_file_rules(self, rules_path: str, content: str):
-        """Write rules to a single file"""
+        """Write SPEKY's rules into a managed block, preserving everything else in the file.
+
+        - No file: create it with just the block.
+        - File with a block: replace the block only.
+        - File SPEKY wrote before blocks existed: back it up under .speky/backups/, keep any rules
+          the user added under "USER RULES", and replace the rest with the block.
+        - Any other file (the user's own CLAUDE.md, etc.): append the block, change nothing else.
+        """
         filepath = self.project_root / rules_path
         filepath.parent.mkdir(parents=True, exist_ok=True)
+        block = f"{self.BLOCK_BEGIN}\n{content.strip(chr(10))}\n{self.BLOCK_END}\n"
+        existing = filepath.read_text() if filepath.exists() else ""
+
+        if not existing.strip():
+            new_text = block
+        elif self.extract_managed_block(existing) is not None:
+            start = existing.find(self.BLOCK_BEGIN)
+            end = existing.find(self.BLOCK_END) + len(self.BLOCK_END)
+            new_text = existing[:start] + block.rstrip("\n") + existing[end:]
+        elif self._is_legacy_speky_file(existing):
+            backup_dir = self.project_root / SPEKY_DIR / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            backup = backup_dir / f"{filepath.name.lstrip('.')}.{stamp}.bak"
+            backup.write_text(existing)
+            user_rules = self._legacy_user_rules(existing)
+            new_text = (f"# Project rules\n\n{user_rules}\n\n" if user_rules else "") + block
+            Console.log(f"Moved {rules_path} to a SPEKY managed block (previous file saved to "
+                        f"{backup.relative_to(self.project_root)})")
+        else:
+            new_text = existing.rstrip("\n") + "\n\n" + block
+
         with open(filepath, 'w') as f:
-            f.write(content)
+            f.write(new_text)
     
     def _write_folder_rules(self, ide_name: str, ide_config: dict, content: str, active_task: str = ""):
         """Write rules to a folder-based IDE (like Antigravity)
@@ -4665,13 +4725,8 @@ If you identify a gap in SPEKY or have a recommendation for improvement:
 
 ---
 
-# USER RULES
-
-Add your custom IDE rules below this line. They will be preserved when SPEKY updates.
-Example:
-- Always use TypeScript strict mode
-- Prefer async/await over promises
-- Use descriptive variable names"""
+> Your own rules go outside this SPEKY block (above or below it).
+> SPEKY rewrites only the text between the SPEKY markers and never touches the rest of this file."""
     
     def open_ide(self):
         """Open the IDE with the project"""
@@ -12707,50 +12762,31 @@ Respond with just:
     # IDE Rules Auto-Refresh
     # -------------------------------------------------------------------------
     def _maybe_refresh_ide_rules(self) -> None:
-        """Smart refresh of IDE rules for all enabled IDEs - only if content changed"""
+        """Smart refresh of IDE rules for all enabled IDEs - only if the managed block changed"""
         try:
-            # Get enabled IDEs (with backward compatibility)
             enabled_ides = self._get_enabled_ides()
-            
-            # Generate new SPEKY rules once (same for all IDEs)
-            new_speky_rules = self.ide._get_speky_rules()
-            
-            # Track which IDEs need updates
-            ides_to_update = []
-            
+            product_context = self.context.get_product_context()
+
             for ide_name in enabled_ides:
                 ide_config = IDEIntegration.IDE_CONFIGS.get(ide_name)
                 if not ide_config:
                     continue
-                
-                # Get the rules file path for this IDE
                 if ide_config["type"] == "folder":
-                    rules_file = self.project_root / ide_config["path"] / ide_config.get("main_file", "rules.md")
-                else:
-                    rules_file = self.project_root / ide_config["path"]
-                
-                # Check if file exists and compare SPEKY section
-                needs_update = True
-                if rules_file.exists():
-                    current_content = rules_file.read_text()
-                    current_speky_section = self._extract_speky_section(current_content)
-                    
-                    # Only update if SPEKY section changed
-                    if current_speky_section == new_speky_rules:
-                        needs_update = False
-                
-                if needs_update:
-                    ides_to_update.append(ide_name)
-            
-            # Update only the IDEs that need it
-            if ides_to_update:
-                product_context = self.context.get_product_context()
-                for ide_name in ides_to_update:
+                    # Folder-based rules are SPEKY-only files; rewrite them every time
                     self.ide.update_context_file(product_context, target_ide=ide_name)
-            
+                    continue
+
+                rules_file = self.project_root / ide_config["path"]
+                if rules_file.exists():
+                    current = IDEIntegration.extract_managed_block(rules_file.read_text())
+                    wanted = self.ide.build_rules_content(ide_name, product_context).strip("\n")
+                    if current == wanted:
+                        continue
+                self.ide.update_context_file(product_context, target_ide=ide_name)
+
         except Exception as e:
-            # Silently fail - don't interrupt commands for rule refresh issues
-            pass
+            # Don't interrupt commands for rule refresh issues, but say what happened
+            Console.warning(f"Could not refresh IDE rules: {e}")
     
     def _get_enabled_ides(self) -> List[str]:
         """Get list of enabled IDEs with backward compatibility
@@ -12772,24 +12808,6 @@ Respond with just:
         single_ide = self.config.get("ide", "windsurf")
         return [single_ide]
     
-    def _extract_speky_section(self, content: str) -> str:
-        """Extract SPEKY-managed section from rules file"""
-        lines = content.split("\n")
-        speky_lines = []
-        in_speky = False
-        
-        for line in lines:
-            if "# SPEKY Project Rules" in line:
-                in_speky = True
-            
-            if in_speky:
-                speky_lines.append(line)
-                # Stop at user section marker
-                if "# USER RULES" in line or "# Custom Rules" in line:
-                    break
-        
-        return "\n".join(speky_lines).strip()
-
     # -------------------------------------------------------------------------
     # Utility Methods
     # -------------------------------------------------------------------------

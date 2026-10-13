@@ -1199,7 +1199,7 @@ When you run ANY speky command in a project, the IDE rules (`.windsurfrules`, `.
 1. SPEKY compares current rules with latest version
 2. If SPEKY section changed → updates automatically
 3. If no changes → skips update (no git noise)
-4. User customizations below `# USER RULES` are preserved
+4. SPEKY writes only between its `BEGIN/END SPEKY MANAGED BLOCK` markers; everything else in the file is yours and is never changed (files written by older versions are backed up to `.speky/backups/` once, keeping your USER RULES)
 
 **Example:**
 ```bash
