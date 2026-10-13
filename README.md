@@ -54,6 +54,26 @@ git push
 
 > See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full build, release, and developer setup guide.
 
+## SPEKY v3: any coding agent drives the workflow
+
+v3 adds an agent protocol to the same `speky` CLI. SPEKY keeps state, rules and evidence; your
+coding agent (Claude Code, Codex, Cursor, OpenCode, …) does the reasoning — no API key needed.
+Every v2 command keeps working on the same `.speky/` folders.
+
+```bash
+speky setup claude-code          # or: codex, agents-md — skills + a small instruction block
+speky next --json                # the one next action, the skill to use, when it's done
+speky new spec "Paste a video link"
+speky check 001                  # rubric + findings ledger; converges instead of looping
+speky start 001                  # records the base commit
+speky evidence 001 R1 --status met --evidence "tests/test_import.py::test_valid_link"
+speky verify 001 --run "pytest -q"   # passes only with evidence for every requirement
+speky archive 001                # merges deltas into living specs in .speky/capabilities/
+```
+
+Existing v2 project? `speky migrate` (dry run), then follow [docs/v3/MIGRATION.md](docs/v3/MIGRATION.md).
+Reference: [docs/v3/CONTRACTS.md](docs/v3/CONTRACTS.md) · background: [docs/v3/PLAN.md](docs/v3/PLAN.md).
+
 ## Models: any provider
 
 SPEKY works with Anthropic, OpenAI, Gemini, OpenRouter, Nebius, OpenCode Go, Groq,
