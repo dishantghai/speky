@@ -442,15 +442,21 @@ instructions/next --json` + `speky prime` + converging validator (taxonomy, ≤5
 Exit test: one change goes intent → spec → validate → plan → implement → verify → archive (living spec
 updated) in two different harnesses, with zero v2 capabilities lost (checked against §2.8).
 
-## 7. Open questions
-- Which harnesses to support first (Claude Code, Codex, Cursor, Gemini CLI, OpenCode…)?
-- Fresh package layout inside this repo vs. a new repo.
-- Migration path for existing v2 `.speky/` projects (v2 specs → changes + seeded living specs).
-- Which §4.1 items go into milestone 1 vs later; which §4.2 modules first.
-- ID style default (sequential vs hash-suffixed).
-- Requirement format: adopt OpenSpec's `Requirement/Scenario` as-is, or BMAD's five-field kernel
-  (Why, Capabilities, Constraints, Non-goals, Success signal) for the change proposal + OpenSpec format
-  for requirements.
+## 7. Decisions *(agreed 2026-10-14)*
+| Question | Decision |
+|---|---|
+| First harnesses | **Claude Code + Codex** (hook-capable + AGENTS.md/skills profiles). Cursor, Gemini CLI next. |
+| Code location | New package **`speky/`** in this repo, reusing `speky_llm.py`. v2 keeps shipping from `speky.py` until parity (§2.8). |
+| ID style | **Sequential by default**, hash-suffixed IDs optional (teams/branches). |
+| Requirement format | **BMAD five-field kernel** (Why, Capabilities, Constraints, Non-goals, Success signal) for the change proposal; **OpenSpec `Requirement`/`Scenario`** with stable IDs for requirements. |
+
+Execution order (agreed): (1) fix v2 destructive bugs on `main` as small branches; (2) parity safety net
+(host-mode replay tests per §2.8 row); (3) v3 contracts (`docs/v3/CONTRACTS.md`); (4) milestone-1
+vertical slices; (5) pilot in both harnesses; (6) v2 → v3 migration.
+
+### Still open
+- Which §4.2 modules come right after milestone 1.
+- Migration details for v2 `.speky/` projects.
 
 ## 8. Sources
 - Beads — https://github.com/steveyegge/beads (docs: https://beads.gascity.com/)
