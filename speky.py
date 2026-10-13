@@ -5540,8 +5540,7 @@ Use research as primary source, Q&A answers to fill gaps or override."""
         """Create a spec from research feature"""
         try:
             # Get next spec ID
-            existing_specs = list(self.context.specs_dir.glob("*/"))
-            next_id = len(existing_specs) + 1
+            next_id = self._next_item_number(self.context.specs_dir)
             spec_id = f"{next_id:03d}"
             
             # Create spec directory
@@ -5618,8 +5617,7 @@ Full Research Context:
         research_content = self._gather_research_input()
         
         # Get next spec ID
-        existing_specs = list(self.context.specs_dir.glob("*/"))
-        next_id = len(existing_specs) + 1
+        next_id = self._next_item_number(self.context.specs_dir)
         spec_id = f"{next_id:03d}"
         
         # Create spec directory
@@ -6262,8 +6260,7 @@ If no open questions, respond with: NO_OPEN_QUESTIONS"""
         Console.header(f"Create Epic: {name}")
         
         # Get next epic ID
-        existing = list(self.context.epics_dir.glob("E*/"))
-        next_num = len(existing) + 1
+        next_num = self._next_item_number(self.context.epics_dir, "E")
         epic_id = f"E{next_num:03d}"
         
         # Create epic directory
@@ -6558,8 +6555,7 @@ If no open questions, respond with: NO_OPEN_QUESTIONS"""
         
         # Get next story ID with prefix
         prefix = stype.value[0].upper()  # F, B, E, T, S
-        existing = list(self.context.stories_dir.glob(f"{prefix}*/"))
-        next_num = len(existing) + 1
+        next_num = self._next_item_number(self.context.stories_dir, prefix)
         story_id = f"{prefix}{next_num:03d}"
         
         # Create story directory
@@ -13025,29 +13021,66 @@ Example:
         
         return False
     
-    def _find_spec_dir(self, spec_id: str) -> Optional[Path]:
-        """Find spec directory by ID or name"""
-        for spec_dir in self.context.specs_dir.glob("*/"):
-            dir_name = str(spec_dir.name)
-            if dir_name.startswith(spec_id) or spec_id in dir_name:
-                return spec_dir
-        return None
-    
-    def _find_story_dir(self, story_id: str) -> Optional[Path]:
-        """Find story directory by ID"""
-        for story_dir in self.context.stories_dir.glob("*/"):
-            dir_name = str(story_dir.name)
-            if dir_name.startswith(story_id) or story_id in dir_name:
-                return story_dir
+    @staticmethod
+    def _next_item_number(base_dir: Path, prefix: str = "") -> int:
+        """Next free number for items named `<prefix><NNN>-slug` in base_dir.
+
+        Uses the highest existing number + 1, so deleting or deprecating an item
+        never makes a new item reuse an ID that already exists.
+        """
+        pattern = re.compile(rf"^{re.escape(prefix)}(\d+)(?:-|$)", re.IGNORECASE)
+        highest = 0
+        if base_dir.exists():
+            for entry in base_dir.iterdir():
+                match = pattern.match(entry.name) if entry.is_dir() else None
+                if match:
+                    highest = max(highest, int(match.group(1)))
+        return highest + 1
+
+    @staticmethod
+    def _find_item_dir(base_dir: Path, ref: str) -> Optional[Path]:
+        """Find an item directory by exact ID (`001`, `1`, `F001`, `f1`) or, failing that,
+        by a name that matches exactly one item's slug. Never matches a substring of an ID,
+        so `01` cannot resolve to `010-...`."""
+        if not ref or not base_dir.exists():
+            return None
+        ref = ref.strip()
+        dirs = sorted(d for d in base_dir.iterdir() if d.is_dir())
+
+        def id_of(name: str) -> str:
+            return name.split("-", 1)[0].lower()
+
+        wanted = {ref.lower()}
+        id_match = re.match(r"^([A-Za-z]?)(\d+)$", ref)
+        if id_match:
+            wanted.add(f"{id_match.group(1)}{int(id_match.group(2)):03d}".lower())
+        for d in dirs:
+            if d.name.lower() == ref.lower() or id_of(d.name) in wanted:
+                return d
+
+        # Name lookup: the slug part must contain the ref's slug, and only one item may match
+        ref_slug = re.sub(r"[^a-z0-9]+", "-", ref.lower()).strip("-")
+        if not ref_slug or id_match:
+            return None
+        matches = [d for d in dirs if "-" in d.name and ref_slug in d.name.split("-", 1)[1].lower()]
+        if len(matches) == 1:
+            return matches[0]
+        if len(matches) > 1:
+            Console.warning(f"'{ref}' matches several items: {', '.join(d.name for d in matches)}. "
+                            "Use the ID instead.")
         return None
 
+    def _find_spec_dir(self, spec_id: str) -> Optional[Path]:
+        """Find spec directory by ID or unique name"""
+        return self._find_item_dir(self.context.specs_dir, spec_id)
+
+    def _find_story_dir(self, story_id: str) -> Optional[Path]:
+        """Find story directory by ID or unique name"""
+        return self._find_item_dir(self.context.stories_dir, story_id)
+
     def _find_epic_dir(self, epic_id: str) -> Optional[Path]:
-        """Find epic directory by ID"""
-        for epic_dir in self.context.epics_dir.glob("*/"):
-            dir_name = str(epic_dir.name)
-            if dir_name.startswith(epic_id) or epic_id in dir_name:
-                return epic_dir
-        return None
+        """Find epic directory by ID or unique name"""
+        return self._find_item_dir(self.context.epics_dir, epic_id)
 
     def _load_epic(self, epic_id: str) -> Optional[dict]:
         """Load epic manifest.yaml"""
@@ -13851,8 +13884,7 @@ Write completion report to: {session_dir / 'extraction_report.json'}
         adopted_specs = []
         skipped_specs = []
         merged_specs = []
-        existing_specs = list(self.context.specs_dir.glob("*/"))
-        next_id = len(existing_specs) + 1
+        next_id = self._next_item_number(self.context.specs_dir)
         
         # Build feature ID to spec ID mapping for dependencies
         feature_to_spec = {}
@@ -15577,8 +15609,7 @@ Provide a helpful, concise answer (2-3 sentences max)."""
     def _create_spec_from_import(self, spec_proposal: dict, phase: str) -> Optional[str]:
         """Create a spec from import proposal"""
         # Get next spec ID
-        existing_specs = list(self.context.specs_dir.glob("*/"))
-        next_id = len(existing_specs) + 1
+        next_id = self._next_item_number(self.context.specs_dir)
         spec_id = f"{next_id:03d}"
         
         # Create spec directory
