@@ -82,10 +82,14 @@ def test_codex_and_agents_md(project):
     assert harness.check(project, "codex")["status"] == "current"
 
 
-def test_skills_have_frontmatter():
+def test_skills_follow_agent_skills_format():
+    import re
+    import yaml
     for name in harness.skill_names():
         text = (harness.SKILLS_DIR / name / "SKILL.md").read_text()
-        assert text.startswith("---\nname: " + name + "\ndescription: "), name
+        front = yaml.safe_load(text.split("---")[1])
+        assert front["name"] == name and re.fullmatch(r"[a-z0-9-]{1,64}", name)
+        assert 0 < len(front["description"]) <= 1024, name
         assert len(text) < 8000, name
 
 
