@@ -202,7 +202,7 @@ Skills (`SKILL.md`, Agent Skills format): `speky` (hub), `speky-propose`, `speky
 `speky-plan`, `speky-implement`, `speky-verify`, `speky-migrate`.
 
 ## 11. Migration from v2 — `speky migrate [--apply]`
-Dry run by default. Creates `speky.yaml` and `capabilities/`; normalises `status.json` (adds `kind`,
-fixes missing `id`); reports duplicate IDs, unknown dependencies, specs without requirement IDs, and
+Dry run by default. Creates `speky.yaml` and `capabilities/`; normalises `status.json` only where needed (missing
+`id`, v2 status aliases such as `done`); reports duplicate IDs, unknown dependencies, specs without requirement IDs, and
 completed items whose v2 drift was skipped; never deletes or rewrites user content. Seeding living
 specs from completed changes needs judgement and is done by the agent with the `speky-migrate` skill.

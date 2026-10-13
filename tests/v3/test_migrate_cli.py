@@ -45,7 +45,9 @@ def test_migrate_dry_run_then_apply_is_idempotent(tmp_path, monkeypatch):
     assert result["done"] and not result["remaining"]
     assert (sp / "speky.yaml").exists() and (sp / "capabilities").is_dir()
     s2 = json.loads((sp / "specs" / "002-browser" / "status.json").read_text())
-    assert s2["id"] == "002" and s2["status"] == "completed" and s2["kind"] == "spec"
+    assert s2["id"] == "002" and s2["status"] == "completed"
+    s1 = json.loads((sp / "specs" / "001-foundation" / "status.json").read_text())
+    assert "migrated_to_v3" not in s1  # already-valid status files are not rewritten
     assert {p: p.read_text() for p in sp.rglob("*.md") if p in docs_before} == docs_before
     assert migrate.plan(project)["done"]
 

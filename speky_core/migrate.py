@@ -38,8 +38,6 @@ def plan(project: Project) -> Dict:
             fixes["create status.json"] = True
         if raw.get("id") != item.id:
             fixes["id"] = item.id
-        if raw.get("kind") != item.kind:
-            fixes["kind"] = item.kind
         status = str(raw.get("status", "draft")).lower()
         if status in V2_STATUS_ALIASES:
             fixes["status"] = V2_STATUS_ALIASES[status]
