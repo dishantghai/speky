@@ -31,7 +31,7 @@ sudo mv speky-macos-arm64 /usr/local/bin/speky
 ## Quick Start
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
+export ANTHROPIC_API_KEY="sk-ant-..."   # or any provider — see "Models" below
 
 # Initialize project
 speky init "Your product idea"
@@ -53,6 +53,34 @@ git push
 ```
 
 > See [DEPLOYMENT.md](./DEPLOYMENT.md) for the full build, release, and developer setup guide.
+
+## Models: any provider
+
+SPEKY works with Anthropic, OpenAI, Gemini, OpenRouter, Nebius, OpenCode Go, Groq,
+Together, DeepSeek, Mistral, xAI, Ollama, LM Studio, any OpenAI-compatible server,
+and your Claude Pro/Max subscription (through the `claude` CLI).
+
+```bash
+speky config --providers                          # which providers are ready
+speky config --model                              # pick provider → model interactively
+speky config --model openrouter/moonshotai/kimi-k2
+speky spec "Login" --llm claude-code/opus         # one run only
+```
+
+Fallbacks and custom providers live in `~/.speky/models.yaml`. See [MODELS.md](./MODELS.md).
+
+## Scripts and AI agents
+
+Every SPEKY command can run without a keyboard, and an agent such as Claude Code can
+act as SPEKY's model itself (host mode, no API key needed):
+
+```bash
+speky spec "Login" -y --answer "Add to phase=phase-1"   # no prompts
+speky spec "Login" --host -y                            # the calling agent answers SPEKY's prompts
+speky host guide                                        # instructions to give your agent
+```
+
+See [AUTOMATION.md](./AUTOMATION.md).
 
 ## Key Features
 

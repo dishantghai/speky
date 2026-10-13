@@ -19,10 +19,13 @@ setup(
     long_description_content_type="text/markdown",
     author="SPEKY Contributors",
     url="https://github.com/dishantghai/speky",
-    py_modules=["speky", "speky_testing"],
+    py_modules=["speky", "speky_testing", "speky_llm", "traceai_config"],
     python_requires=">=3.8",
     install_requires=[
-        "anthropic>=0.7.0",
+        "anthropic>=0.39.0",
+        "openai>=1.0.0",
+        "google-genai>=1.0.0",
+        "pyyaml>=6.0",
         "requests>=2.31.0",
     ],
     entry_points={

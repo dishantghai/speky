@@ -59,58 +59,49 @@ def _load_env():
 
 _load_env()
 
-# Third-party imports — detect available AI provider in priority order
-ANTHROPIC_AVAILABLE = False
-OPENAI_AVAILABLE = False
-GEMINI_AVAILABLE = False
-
+# Initialize TraceAI observability (optional)
 try:
-    from anthropic import Anthropic
-    ANTHROPIC_AVAILABLE = True
+    from traceai_config import initialize_traceai
+    initialize_traceai(project_name="SPEKY")
 except ImportError:
     pass
+except Exception as e:
+    print(f"⚠️  TraceAI disabled: {e}")
 
-try:
-    from openai import OpenAI as OpenAIClient
-    OPENAI_AVAILABLE = True
-except ImportError:
-    pass
-
-try:
-    from google import genai as genai
-    GEMINI_AVAILABLE = True
-except ImportError:
-    pass
-
-if not any([ANTHROPIC_AVAILABLE, OPENAI_AVAILABLE, GEMINI_AVAILABLE]):
-    print("⚠️  No AI provider installed. Run: pip install anthropic  (or openai / google-genai)")
-
-
-def _detect_provider() -> str:
-    """Detect which AI provider to use. Priority: Anthropic → OpenAI → Gemini.
-    Only selects a provider if both the package is available AND the key is set.
-    """
-    if os.environ.get("ANTHROPIC_API_KEY") and ANTHROPIC_AVAILABLE:
-        return "anthropic"
-    if os.environ.get("OPENAI_API_KEY") and OPENAI_AVAILABLE:
-        return "openai"
-    if os.environ.get("GEMINI_API_KEY") and GEMINI_AVAILABLE:
-        return "gemini"
-    # No matching key+package combo found — print helpful message
-    if os.environ.get("GEMINI_API_KEY") and not GEMINI_AVAILABLE:
-        print("⚠️  GEMINI_API_KEY is set but google-genai is not installed.")
-        print("   Run: pip install google-genai")
-    elif not any([os.environ.get("ANTHROPIC_API_KEY"), os.environ.get("OPENAI_API_KEY"), os.environ.get("GEMINI_API_KEY")]):
-        print("⚠️  No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
-        print("   Add it to your shell profile or create a .env file in your project root.")
-    return None
-
-
-AI_PROVIDER = _detect_provider()
+# Multi-provider model routing (provider/model refs, configured in ~/.speky/models.yaml)
+from speky_llm import (LLMRouter, LLMError, GLOBAL_CONFIG, save_model,
+                       pending_host_requests, write_host_answer)
 
 # =============================================================================
 # CONFIGURATION
 # =============================================================================
+
+HOST_AGENT_GUIDE = """\
+SPEKY host mode — instructions for the AI agent running SPEKY
+==============================================================
+You (the agent) are SPEKY's model: SPEKY makes no LLM calls of its own, it asks you.
+
+1. Start the command in the background, in host mode and without prompts:
+       speky <command> ... --host -y [--answer "question=value" ...]
+   (Claude Code: run it with run_in_background. It must keep running while you answer.)
+2. Watch its output. When it prints "⏸️  SPEKY host request NNN", read the prompt:
+       speky host show NNN
+3. Write the answer exactly as the prompt asks (JSON only when it says JSON), using
+   your knowledge of this codebase, to a file and deliver it:
+       speky host answer NNN --file /path/to/answer.md
+4. SPEKY continues by itself; repeat 2-3 for each new request until the command exits.
+
+Rules
+- The answer is used verbatim — no preamble, no "Here is...".
+- Do not edit files under .speky/ yourself while SPEKY is running; let SPEKY write them.
+- If SPEKY exits with code 4 it needs an answer to a question: re-run the same command
+  adding the --answer it printed.
+- `speky host status` lists waiting requests. Requests time out after 30 minutes.
+"""
+
+# Exit codes (also listed in `speky --help`)
+EXIT_NEEDS_INPUT = 4   # a question had no --answer and no usable default (non-interactive mode)
+
 
 DEFAULT_CONFIG = {
     "model": "claude-sonnet-4-20250514",
@@ -610,26 +601,106 @@ class Console:
     def warning(message: str):
         print(f"⚠️  {message}")
     
+    # ---- Non-interactive answering ------------------------------------------
+    # Set from the global --yes / --non-interactive / --answer / --answers flags
+    # (or automatically when stdin is not a terminal). Every question SPEKY asks
+    # goes through prompt/confirm/choose/text_block/pause below, so scripts and
+    # AI agents can drive any command without a keyboard.
+    non_interactive = False
+    assume_yes = False
+    answers: List[tuple] = []          # (question substring, answer), in order given
+    _asked: Dict[str, int] = {}
+
+    @classmethod
+    def configure(cls, non_interactive: bool = False, assume_yes: bool = False,
+                  answers: List[tuple] = None):
+        cls.non_interactive = non_interactive or assume_yes
+        cls.assume_yes = assume_yes
+        cls.answers = list(answers or [])
+
+    @classmethod
+    def _preset_answer(cls, message: str) -> Optional[str]:
+        """First --answer whose key appears in the question (case-insensitive).
+        A key given several times is used once per entry, in order."""
+        question = " ".join(message.split()).lower()
+        for i, (key, value) in enumerate(cls.answers):
+            if key.lower() in question:
+                if sum(1 for k, _ in cls.answers if k == key) > 1:
+                    cls.answers.pop(i)
+                return value
+        return None
+
+    @classmethod
+    def _unattended(cls, message: str, value: str, how: str) -> str:
+        """Log an answer chosen without a human, and stop if a question keeps repeating."""
+        question = " ".join(message.split())
+        cls._asked[question] = cls._asked.get(question, 0) + 1
+        # Distinct questions can share a prompt ("Your answer"), so only a long run means a loop
+        if cls._asked[question] > 20:
+            cls.needs_input(question, "SPEKY keeps asking this question; the automatic answer is not accepted.")
+        print(f"   ↳ {question} → {value!r} ({how})", flush=True)
+        return value
+
     @staticmethod
-    def prompt(message: str, default: str = None) -> str:
+    def needs_input(question: str, reason: str = "", options: List[str] = None):
+        """Exit with EXIT_NEEDS_INPUT, telling the caller exactly which --answer to add."""
+        print(f"\n❓ SPEKY needs an answer it cannot get without a terminal.", flush=True)
+        print(f"   Question: {question}")
+        if reason:
+            print(f"   {reason}")
+        if options:
+            for i, opt in enumerate(options, 1):
+                print(f"     {i}. {opt}")
+        key = re.sub(r"[^\w ()/-]", "", question).strip()[:40] or "question"
+        print(f"   Re-run the same command with:  --answer \"{key}=<value>\"")
+        sys.exit(EXIT_NEEDS_INPUT)
+
+    @classmethod
+    def prompt(cls, message: str, default: str = None) -> str:
         """Get user input with prompt"""
+        preset = cls._preset_answer(message)
+        if preset is not None:
+            return cls._unattended(message, preset, "--answer")
+        if cls.non_interactive:
+            return cls._unattended(message, default or "", "default" if default else "empty, no default")
         if default:
             response = input(f"📝 {message} [{default}]: ").strip()
             return response if response else default
         return input(f"📝 {message}: ").strip()
-    
-    @staticmethod
-    def confirm(message: str, default: bool = True) -> bool:
+
+    @classmethod
+    def confirm(cls, message: str, default: bool = True) -> bool:
         """Ask for confirmation"""
+        preset = cls._preset_answer(message)
+        if preset is not None:
+            return cls._unattended(message, preset, "--answer").strip().lower() in ('y', 'yes', 'true', '1')
+        # --yes says yes once; a repeat of the same confirmation ("Add another?") takes its default
+        if cls.assume_yes and not cls._asked.get(" ".join(message.split())):
+            return cls._unattended(message, "yes", "--yes") == "yes"
+        if cls.non_interactive:
+            return cls._unattended(message, "yes" if default else "no", "default") == "yes"
         suffix = "[Y/n]" if default else "[y/N]"
         response = input(f"❓ {message} {suffix}: ").strip().lower()
         if not response:
             return default
         return response in ('y', 'yes')
-    
-    @staticmethod
-    def choose(message: str, options: List[str]) -> int:
-        """Present options and get choice"""
+
+    @classmethod
+    def choose(cls, message: str, options: List[str]) -> int:
+        """Present options and get choice. Answers may be an option number or part of its text."""
+        preset = cls._preset_answer(message)
+        if preset is not None:
+            if preset.strip().isdigit() and 1 <= int(preset) <= len(options):
+                index = int(preset) - 1
+            else:
+                matches = [i for i, opt in enumerate(options) if preset.lower() in opt.lower()]
+                if not matches:
+                    cls.needs_input(message.strip(), f"--answer {preset!r} matches none of the options:", options)
+                index = matches[0]
+            cls._unattended(message, options[index], "--answer")
+            return index
+        if cls.non_interactive:
+            cls.needs_input(message.strip(), "Choose one of (number or part of the text):", options)
         print(f"\n{message}")
         for i, opt in enumerate(options, 1):
             print(f"  {i}. {opt}")
@@ -642,7 +713,32 @@ class Console:
                 print(f"Please enter 1-{len(options)}")
             except ValueError:
                 print("Please enter a number")
-    
+
+    @classmethod
+    def text_block(cls, message: str, line_prompt: str = "", stop_on_blank: bool = False) -> str:
+        """Read multi-line text: until EOF (Ctrl+D), or until a blank line if stop_on_blank."""
+        preset = cls._preset_answer(message)
+        if preset is not None:
+            return cls._unattended(message, preset, "--answer")
+        if cls.non_interactive:
+            return cls._unattended(message, "", "empty, no default")
+        lines = []
+        try:
+            while True:
+                line = input(line_prompt)
+                if stop_on_blank and not line.strip():
+                    break
+                lines.append(line)
+        except EOFError:
+            pass
+        return "\n".join(lines).strip()
+
+    @classmethod
+    def pause(cls, message: str = "Press Enter to continue..."):
+        if cls.non_interactive:
+            return
+        input(message)
+
     @staticmethod
     def files_created(files: List[str]):
         """Show created files"""
@@ -2738,163 +2834,48 @@ Do not truncate or summarize - output the full document with all changes incorpo
 # =============================================================================
 
 class AIClient:
-    """Wrapper around AI APIs with retry logic and JSON extraction.
+    """Wrapper around the LLM router with JSON extraction.
 
-    Supports Anthropic Claude (primary), OpenAI GPT (1st fallback),
-    and Google Gemini (2nd fallback). Provider is selected automatically
-    based on which API key is set in the environment.
+    The model is a "provider/model" ref (e.g. openrouter/moonshotai/kimi-k2,
+    claude-code/sonnet) chosen in ~/.speky/models.yaml or via `speky config --model`.
+    See speky_llm.py for providers, retries and fallbacks.
     """
 
-    _PROVIDER_DEFAULT_MODELS = {
-        "anthropic": "claude-sonnet-4-20250514",
-        "openai": "gpt-4o",
-        "gemini": "gemini-2.0-flash",
-    }
-
-    def __init__(self, config: dict = None):
+    def __init__(self, config: dict = None, project_root: Path = None):
         self.config = dict(config or DEFAULT_CONFIG)
-        self.client = None
-        self.provider = AI_PROVIDER
+        self.router = LLMRouter(project_root=project_root,
+                                legacy_model=self.config.get("model"),
+                                legacy_default=DEFAULT_CONFIG["model"],
+                                timeout=self.config.get("api_timeout", 120),
+                                log=Console.warning)
+        self.model_ref = self.router.model_ref
+        self.provider, self.model = None, None
+        if self.model_ref:
+            try:
+                self.provider, self.model = self.router.resolve(self.model_ref)
+            except LLMError as e:
+                Console.error(str(e))
 
-        # Provider-specific model env vars override config default
-        # e.g. ANTHROPIC_MODEL, OPENAI_MODEL, GEMINI_MODEL in .env
-        _provider_model_env = {
-            "anthropic": "ANTHROPIC_MODEL",
-            "openai": "OPENAI_MODEL",
-            "gemini": "GEMINI_MODEL",
-        }
-
-        if self.provider == "anthropic" and ANTHROPIC_AVAILABLE:
-            if os.environ.get("ANTHROPIC_MODEL"):
-                self.config["model"] = os.environ["ANTHROPIC_MODEL"]
-            self.client = Anthropic()
-        elif self.provider == "openai" and OPENAI_AVAILABLE:
-            self.client = OpenAIClient()
-            if os.environ.get("OPENAI_MODEL"):
-                self.config["model"] = os.environ["OPENAI_MODEL"]
-            elif self.config.get("model", "").startswith("claude-"):
-                self.config["model"] = self._PROVIDER_DEFAULT_MODELS["openai"]
-            Console.log(f"AI provider: OpenAI ({self.config['model']})")
-        elif self.provider == "gemini" and GEMINI_AVAILABLE:
-            if os.environ.get("GEMINI_MODEL"):
-                model_name = os.environ["GEMINI_MODEL"]
-            else:
-                model_name = self.config.get("model", self._PROVIDER_DEFAULT_MODELS["gemini"])
-                if model_name.startswith("claude-"):
-                    model_name = self._PROVIDER_DEFAULT_MODELS["gemini"]
-            self.client = genai.Client(api_key=os.environ.get("GEMINI_API_KEY"))
-            self.config["model"] = model_name
-            Console.log(f"AI provider: Google Gemini ({model_name})")
-        else:
-            if os.environ.get("GEMINI_API_KEY") and not GEMINI_AVAILABLE:
-                Console.error("GEMINI_API_KEY is set but google-genai is not installed.")
-                Console.error("Run: pip install google-genai")
-            elif os.environ.get("OPENAI_API_KEY") and not OPENAI_AVAILABLE:
-                Console.error("OPENAI_API_KEY is set but openai is not installed.")
-                Console.error("Run: pip install openai")
-            elif not any([os.environ.get("ANTHROPIC_API_KEY"), os.environ.get("OPENAI_API_KEY"), os.environ.get("GEMINI_API_KEY")]):
-                Console.error("No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
-            else:
-                Console.error("No AI provider available. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
-
-    def query(self, prompt: str, system: str = None, max_tokens: int = None, use_streaming: bool = None) -> Optional[str]:
-        """Query AI and return response with retry logic. Supports Anthropic, OpenAI, and Gemini."""
-        if not self.client:
-            if os.environ.get("GEMINI_API_KEY") and not GEMINI_AVAILABLE:
-                Console.error("GEMINI_API_KEY is set but google-genai is not installed. Run: pip install google-genai")
-            elif os.environ.get("OPENAI_API_KEY") and not OPENAI_AVAILABLE:
-                Console.error("OPENAI_API_KEY is set but openai is not installed. Run: pip install openai")
-            else:
-                Console.error("No API key found. Set ANTHROPIC_API_KEY, OPENAI_API_KEY, or GEMINI_API_KEY.")
-            return None
-
+    def query(self, prompt: str, system: str = None, max_tokens: int = None, use_streaming: bool = None,
+              expect_json: bool = False) -> Optional[str]:
+        """Query the configured model (falling back through `fallbacks`) and return the text."""
         if system is None:
             system = "You are an expert AI assistant. Be concise and actionable."
-
         tokens = max_tokens or self.config["max_tokens"]
-
-        # Auto-enable streaming for large token requests (>8192) to avoid timeout
-        # Gemini handles large requests natively — no streaming needed
+        # Auto-enable streaming for large token requests (>8192) to avoid timeouts
         if use_streaming is None:
-            use_streaming = tokens > 8192 and self.provider != "gemini"
-
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                if self.provider == "anthropic":
-                    if use_streaming:
-                        collected_text = []
-                        with self.client.messages.stream(
-                            model=self.config["model"],
-                            max_tokens=tokens,
-                            temperature=self.config["temperature"],
-                            system=system,
-                            messages=[{"role": "user", "content": prompt}],
-                        ) as stream:
-                            for text in stream.text_stream:
-                                collected_text.append(text)
-                        return "".join(collected_text)
-                    else:
-                        response = self.client.messages.create(
-                            model=self.config["model"],
-                            max_tokens=tokens,
-                            temperature=self.config["temperature"],
-                            system=system,
-                            messages=[{"role": "user", "content": prompt}],
-                        )
-                        return response.content[0].text
-
-                elif self.provider == "openai":
-                    messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
-                    if use_streaming:
-                        stream = self.client.chat.completions.create(
-                            model=self.config["model"],
-                            max_tokens=tokens,
-                            temperature=self.config["temperature"],
-                            messages=messages,
-                            stream=True,
-                        )
-                        collected_text = []
-                        for chunk in stream:
-                            if chunk.choices[0].delta.content:
-                                collected_text.append(chunk.choices[0].delta.content)
-                        return "".join(collected_text)
-                    else:
-                        response = self.client.chat.completions.create(
-                            model=self.config["model"],
-                            max_tokens=tokens,
-                            temperature=self.config["temperature"],
-                            messages=messages,
-                        )
-                        return response.choices[0].message.content
-
-                elif self.provider == "gemini":
-                    full_prompt = f"{system}\n\n{prompt}" if system else prompt
-                    response = self.client.models.generate_content(
-                        model=self.config["model"], contents=full_prompt
-                    )
-                    return response.text
-
-            except Exception as e:
-                error_msg = str(e)
-                # If we get a streaming required error, retry with streaming
-                if "streaming is required" in error_msg.lower() and not use_streaming:
-                    Console.log("Switching to streaming mode for large request...")
-                    use_streaming = True
-                    continue
-
-                if attempt < max_retries - 1:
-                    Console.warning(f"API error (attempt {attempt + 1}): {error_msg}")
-                    import time
-                    time.sleep(2)
-                else:
-                    Console.error(f"API Error after {max_retries} attempts: {error_msg}")
-                    return None
+            use_streaming = tokens > 8192
+        try:
+            return self.router.complete(prompt, system, tokens, self.config["temperature"],
+                                        stream=use_streaming, expect_json=expect_json)
+        except LLMError as e:
+            Console.error(f"AI request failed: {e}")
+            return None
 
     def query_json(self, prompt: str, max_retries: int = 3) -> Optional[dict]:
         """Query AI and parse JSON response with retry"""
         for attempt in range(max_retries):
-            response = self.query(prompt)
+            response = self.query(prompt, expect_json=True)
             if not response:
                 return None
             
@@ -2907,7 +2888,7 @@ class AIClient:
                 Console.warning(f"JSON parse failed (attempt {attempt + 1}), retrying...")
                 # Ask AI to fix the JSON
                 fix_prompt = f"Your previous response was not valid JSON. Please output ONLY valid JSON, no markdown or other text:\n\n{response}"
-                response = self.query(fix_prompt)
+                response = self.query(fix_prompt, expect_json=True)
                 json_data = self._extract_json(response)
                 if json_data:
                     return json_data
@@ -4680,7 +4661,7 @@ class SPEKY:
         self.project_root = Path(project_root) if project_root else Path.cwd()
         self.context = ContextMemory(self.project_root)
         self.config = self.context.load_config() if self.context.is_initialized() else DEFAULT_CONFIG
-        self.ai = AIClient(self.config)
+        self.ai = AIClient(self.config, self.project_root)
         
         # Get enabled IDEs (with backward compatibility)
         enabled_ides = self._get_enabled_ides_from_context()
@@ -4830,15 +4811,7 @@ class SPEKY:
         
         elif choice == 1:  # Paste
             Console.log("Paste your research notes (press Ctrl+D or Ctrl+Z then Enter when done):")
-            lines = []
-            try:
-                while True:
-                    line = input()
-                    lines.append(line)
-            except EOFError:
-                pass
-            
-            pasted_content = "\n".join(lines).strip()
+            pasted_content = Console.text_block("Research notes")
             
             if pasted_content:
                 # Save pasted content
@@ -5457,15 +5430,7 @@ Full Research Context:
         
         elif choice == 2:  # Paste
             Console.log("Paste your research notes (press Ctrl+D or Ctrl+Z then Enter when done):")
-            lines = []
-            try:
-                while True:
-                    line = input()
-                    lines.append(line)
-            except EOFError:
-                pass
-            
-            research_content = "\n".join(lines).strip()
+            research_content = Console.text_block("Research notes")
             
             if research_content:
                 summary = self._summarize_research(research_content)
@@ -9647,13 +9612,13 @@ Happy building! 🚀
             print("  [r] Re-validate (after making changes)")
             print("  [q] Quit")
             
-            choice = input("\nChoice: ").strip().lower()
+            choice = Console.prompt("\nChoice (v/a/r/q)", default="q").strip().lower()
             
             if choice == 'v':
                 print("\n" + "="*60)
                 print(result.get("raw", "No analysis available"))
                 print("\n" + "="*60)
-                input("Press Enter to continue...")
+                Console.pause()
                 
             elif choice == 'e':
                 import subprocess
@@ -10718,20 +10683,7 @@ Target Users: {product.get('target_users', '')}"""
     def _get_user_comments(self, prompt: str = "Add your comments/context") -> str:
         """Get multi-line user comments"""
         Console.log(f"\n💬 {prompt} (Enter to skip, or type and press Enter twice when done):")
-        lines = []
-        empty_count = 0
-        try:
-            while empty_count < 1:
-                line = input("   > ")
-                if line.strip() == "":
-                    empty_count += 1
-                else:
-                    empty_count = 0
-                    lines.append(line)
-        except EOFError:
-            pass
-        
-        return " ".join(lines).strip()
+        return " ".join(Console.text_block(prompt, line_prompt="   > ", stop_on_blank=True).split("\n")).strip()
     
     def _build_action_item(
         self,
@@ -11384,7 +11336,7 @@ Deferred items from spec validation. Review these when creating new specs.
                 
                 if cached_fix:
                     # We have a cached fix from initial validation
-                    ai_choice = input("   Want AI fix suggestion? [y]es / [n]o / [c]ontext: ").strip().lower()
+                    ai_choice = Console.prompt("   Want AI fix suggestion? [y]es / [n]o / [c]ontext", default="n").strip().lower()
                     
                     if ai_choice in ['y', 'yes']:
                         # Use cached fix (no AI call needed!)
@@ -11396,7 +11348,7 @@ Deferred items from spec validation. Review these when creating new specs.
                         ai_suggestion = self._get_ai_suggestion_with_full_context(gap, user_context, session)
                 else:
                     # No cache available (older format or parsing failed) - fallback to AI call
-                    ai_choice = input("   Want AI suggestions? [y]es / [n]o / [c]ontext: ").strip().lower()
+                    ai_choice = Console.prompt("   Want AI suggestions? [y]es / [n]o / [c]ontext", default="n").strip().lower()
                     
                     if ai_choice in ['y', 'yes']:
                         ai_suggestion = self._get_ai_suggestion_for_item_with_session(gap, session)
@@ -11425,7 +11377,7 @@ Deferred items from spec validation. Review these when creating new specs.
                     Console.log("Added to fix list ✓")
                 
                 elif choice == 2:  # Fix now
-                    fix_mode = input("   Fix now: [a]uto / [m]anual: ").strip().lower()
+                    fix_mode = Console.prompt("   Fix now: [a]uto / [m]anual", default="m").strip().lower()
                     if fix_mode in ["a", "auto"]:
                         if self._apply_ai_fix_to_spec(spec_file, gap, ai_suggestion):
                             item = self._build_action_item(
@@ -11505,7 +11457,7 @@ Deferred items from spec validation. Review these when creating new specs.
                     
                     # Step 1: Optionally get AI suggestion FIRST
                     ai_suggestion = ""
-                    ai_choice = input("   Want AI suggestions? [y]es / [n]o / [c]ontext: ").strip().lower()
+                    ai_choice = Console.prompt("   Want AI suggestions? [y]es / [n]o / [c]ontext", default="n").strip().lower()
                     
                     if ai_choice in ['y', 'yes']:
                         ai_suggestion = self._get_ai_suggestion_for_item_with_session(suggestion, session)
@@ -11865,7 +11817,7 @@ Deferred items from spec validation. Review these when creating new specs.
         for idx, action in enumerate(actions, 1):
             print(f"   Item {idx}/{len(actions)}")
             print(f"      {self._format_action_item(action)}\n")
-            choice = input("      Apply now? [a]uto / [m]anual / [s]kip: ").strip().lower()
+            choice = Console.prompt("      Apply now? [a]uto / [m]anual / [s]kip", default="s").strip().lower()
             if choice in ["a", "auto"]:
                 ai_suggestion = action.get("ai_suggestion", "")
                 
@@ -12035,7 +11987,7 @@ Respond with just:
     def _run_manual_fix(self, spec_file: Path):
         Console.log(f"\n📝 Spec file: {spec_file}")
         Console.log("Make your changes, save the file, then press Enter to continue...\n")
-        input()
+        Console.pause("")
 
 
     # -------------------------------------------------------------------------
@@ -16270,10 +16222,58 @@ Total Specs: {len(ordered_specs)}
         return True
 
     # -------------------------------------------------------------------------
+    # Command: host (Host mode — the calling agent answers SPEKY's prompts)
+    # -------------------------------------------------------------------------
+    def cmd_host(self, action: str = "status", request_id: str = None, file: str = None) -> bool:
+        """Inspect and answer prompts that a SPEKY run in host mode is waiting on."""
+        if action == "guide":
+            print(HOST_AGENT_GUIDE)
+            return True
+
+        pending = pending_host_requests(self.project_root)
+        if action == "status":
+            if not pending:
+                print("No host requests waiting.")
+                print("Start a command in host mode with --host (or SPEKY_MODEL=host); see `speky host guide`.")
+                return True
+            for f in pending:
+                print(f"⏸️  {f.name[:3]}  waiting  {f}")
+            return True
+
+        if request_id:
+            rid = f"{int(request_id):03d}" if request_id.isdigit() else request_id
+            prompt_file = self.project_root / SPEKY_DIR / "host" / f"{rid}.prompt.md"
+        elif pending:
+            prompt_file, rid = pending[0], pending[0].name[:3]
+        else:
+            Console.error("No host requests waiting.")
+            return False
+        if not prompt_file.exists():
+            Console.error(f"No host request {rid} waiting ({prompt_file}).")
+            return False
+
+        if action == "show":
+            print(prompt_file.read_text())
+            return True
+
+        # answer
+        text = Path(file).read_text() if file else sys.stdin.read()
+        if not text.strip():
+            Console.error("Empty answer — pass --file or pipe the answer on stdin.")
+            return False
+        try:
+            write_host_answer(self.project_root, rid, text)
+        except LLMError as e:
+            Console.error(str(e))
+            return False
+        Console.success(f"Answered host request {rid}; the waiting SPEKY run will continue.")
+        return True
+
+    # -------------------------------------------------------------------------
     # Command: config (SPEKY Configuration)
     # -------------------------------------------------------------------------
     def cmd_config(self, ides: str = None, action: str = None, value: str = None,
-                   list_ides: bool = False, model: str = None) -> bool:
+                   list_ides: bool = False, model: str = None, providers: bool = False) -> bool:
         """View and manage SPEKY configuration, especially IDE settings
 
         Usage:
@@ -16285,13 +16285,16 @@ Total Specs: {len(ordered_specs)}
             speky config --ides set windsurf,antigravity  Set specific IDEs
             speky config --model                   Show current model + available env models
             speky config --model GEMINI_MODEL      Switch to model defined by env var key
-            speky config --model gemini-2.5-pro    Switch to model by name directly
+            speky config --model openrouter/moonshotai/kimi-k2   Set model (provider/model)
+            speky config --providers               List AI providers and key status
         """
         Console.header("⚙️ SPEKY Configuration")
 
         # Handle model configuration
         if model is not None:
             return self._config_model(model)
+        if providers:
+            return self._config_providers()
 
         # List all supported IDEs
         if list_ides:
@@ -16315,45 +16318,84 @@ Total Specs: {len(ordered_specs)}
         return True
 
     def _config_model(self, model_arg: str) -> bool:
-        """Handle model configuration — switch model via env var key or direct name."""
-        # Empty string = show current model and available env model keys
+        """Show or set the active model (a provider/model ref, saved to ~/.speky/models.yaml)."""
+        router = self.ai.router
         if not model_arg:
-            current = self.config.get("model", "not set")
-            print(f"   🤖 Current model: {current}")
-            print(f"\n   Env var model keys found in environment:")
-            found = False
-            for key, val in os.environ.items():
-                if key.endswith("_MODEL") and key.upper() == key:
-                    print(f"      {key}={val}")
-                    found = True
-            if not found:
-                print("      (none — add ANTHROPIC_MODEL, OPENAI_MODEL, or GEMINI_MODEL to .env)")
-            print(f"\n   Usage:")
-            print(f"      speky config --model GEMINI_MODEL       # use env var key")
-            print(f"      speky config --model gemini-2.5-pro     # use model name directly")
-            return True
+            print(f"   🤖 Current model: {router.model_ref or 'not set'}")
+            if router.fallbacks:
+                print(f"   ↪️  Fallbacks: {', '.join(router.fallbacks)}")
+            print(f"   📄 Config: {GLOBAL_CONFIG}")
+            if not Console.confirm("Change model?", default=False):
+                print("\n   Usage: speky config --model openrouter/moonshotai/kimi-k2")
+                print("          speky config --providers     # list providers and key status")
+                return True
+            return self._pick_model()
 
-        # If arg looks like an env var key (all caps + underscores), resolve it
+        # Legacy: an env var key (e.g. GEMINI_MODEL) resolves to its value
         import re
         if re.match(r'^[A-Z][A-Z0-9_]+$', model_arg):
             resolved = os.environ.get(model_arg)
             if not resolved:
                 Console.error(f"Env var '{model_arg}' not found. Add it to your .env file.")
-                Console.log(f"Example: {model_arg}=your-model-name")
                 return False
-            model_name = resolved
-            Console.log(f"Resolved {model_arg} → {model_name}")
-        else:
-            model_name = model_arg
+            Console.log(f"Resolved {model_arg} → {resolved}")
+            model_arg = resolved
 
-        # Save to config.yaml
-        config = self.context.load_config()
-        config["model"] = model_name
-        self.context._save_config(config)
-        Console.success(f"Model set to: {model_name}")
-        Console.log("Restart speky or run the next command to use the new model.")
+        try:
+            provider, model = router.resolve(model_arg)
+        except LLMError as e:
+            Console.error(str(e))
+            return False
+        return self._save_model(f"{provider}/{model}")
+
+    def _pick_model(self) -> bool:
+        """Interactive provider → model picker."""
+        router = self.ai.router
+        names = sorted(router.providers, key=lambda n: (not router.is_available(n), n))
+        labels = [f"{n:<14} {'✅' if router.is_available(n) else '  '} {router.status(n)}" for n in names]
+        provider = names[Console.choose("Select a provider:", labels)]
+        if not router.is_available(provider):
+            Console.warning(f"{provider} is not ready yet ({router.status(provider)}) — saving anyway.")
+            models = list(router.providers[provider].get("models") or [])
+        else:
+            Console.log(f"Fetching models from {provider}...")
+            models = router.list_models(provider)
+        if models:
+            shown = models[:40]
+            for i, m in enumerate(shown, 1):
+                print(f"  {i:>3}. {m}")
+            if len(models) > len(shown):
+                print(f"       … {len(models) - len(shown)} more — type the exact name")
+            answer = Console.prompt("Model number or name")
+            model = shown[int(answer) - 1] if answer.isdigit() and 1 <= int(answer) <= len(shown) else answer
+        else:
+            model = Console.prompt("Model name")
+        if not model:
+            Console.error("No model chosen.")
+            return False
+        return self._save_model(f"{provider}/{model}")
+
+    def _save_model(self, model_ref: str) -> bool:
+        save_model(model_ref)
+        Console.success(f"Model set to: {model_ref}  (saved in {GLOBAL_CONFIG})")
+        if os.environ.get("SPEKY_MODEL"):
+            Console.warning(f"SPEKY_MODEL={os.environ['SPEKY_MODEL']} is set and overrides this.")
+        if (self.project_root / SPEKY_DIR / "models.yaml").exists():
+            Console.warning(f"{SPEKY_DIR}/models.yaml in this project may override it.")
         return True
-    
+
+    def _config_providers(self) -> bool:
+        """List known providers and whether each is ready to use."""
+        router = self.ai.router
+        Console.section("AI Providers")
+        for name in sorted(router.providers):
+            p = router.providers[name]
+            mark = "✅" if router.is_available(name) else "❌"
+            where = p.get("base_url") or ("claude CLI" if p["type"] == "claude-code" else p["type"])
+            print(f"   {mark} {name:<14} {router.status(name):<28} {where}")
+        print(f"\n   Add or override providers in {GLOBAL_CONFIG} (see MODELS.md).")
+        return True
+
     def _config_ides(self, ides: str, action: str = None, value: str = None) -> bool:
         """Handle IDE configuration commands"""
         
@@ -16488,8 +16530,7 @@ Total Specs: {len(ordered_specs)}
         print(f"   📱 Enabled IDEs: {', '.join(enabled_ides)}")
         
         # Show model
-        model = self.config.get("model", "claude-sonnet-4-20250514")
-        print(f"   🤖 AI Model: {model}")
+        print(f"   🤖 AI Model: {self.ai.model_ref or 'not set'}")
         
         # Show MCP status
         mcp_enabled = self.config.get("mcp_enabled", False)
@@ -17149,11 +17190,7 @@ Total Specs: {len(ordered_specs)}
     def _analyze_image_with_vision(self, image_path: Path, technology: str) -> Optional[dict]:
         """Analyze image using Claude Vision API"""
         import base64
-        
-        if not self.ai.client:
-            Console.error("AI client not available")
-            return None
-        
+
         # Read and encode image
         with open(image_path, "rb") as f:
             image_data = base64.standard_b64encode(f.read()).decode("utf-8")
@@ -17245,11 +17282,12 @@ Output as structured markdown with exact values.
 Be specific with pixel values and hex codes."""
 
         try:
-            if self.ai.provider != "anthropic":
-                Console.warning("Image analysis requires an Anthropic API key (ANTHROPIC_API_KEY). Skipping.")
+            client, model = self.ai.router.anthropic_client()
+            if not client:
+                Console.warning("Image analysis needs an anthropic/* model. Skipping.")
                 return None
-            response = self.ai.client.messages.create(
-                model=self.config["model"],
+            response = client.messages.create(
+                model=model,
                 max_tokens=4096,
                 messages=[
                     {
@@ -19976,12 +20014,145 @@ Generated: {datetime.now().isoformat()}
 # CLI ENTRY POINT
 # =============================================================================
 
+# =============================================================================
+# GLOBAL OPTIONS — accepted anywhere on the command line, before or after the command
+# =============================================================================
+
+_GLOBAL_FLAGS = {"-y": "yes", "--yes": "yes", "--non-interactive": "non_interactive",
+                 "--no-input": "non_interactive", "--host": "host"}
+_GLOBAL_VALUE_OPTIONS = {"--answer": "answer", "--answers": "answers", "--llm": "llm"}
+
+
+def _extract_global_options(argv: List[str]):
+    """Pull global options out of argv so they work after the subcommand too.
+    Returns (remaining argv, options dict)."""
+    opts = {"yes": False, "non_interactive": False, "host": False,
+            "answer": [], "answers": None, "llm": None}
+    rest, i = [], 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg == "--":
+            rest.extend(argv[i:])
+            break
+        name, eq, inline = arg.partition("=")
+        if arg in _GLOBAL_FLAGS:
+            opts[_GLOBAL_FLAGS[arg]] = True
+        elif name in _GLOBAL_VALUE_OPTIONS:
+            if eq:
+                value = inline
+            elif i + 1 < len(argv):
+                i += 1
+                value = argv[i]
+            else:
+                print(f"❌ {name} needs a value")
+                sys.exit(2)
+            key = _GLOBAL_VALUE_OPTIONS[name]
+            if key == "answer":
+                opts["answer"].append(value)
+            else:
+                opts[key] = value
+        else:
+            rest.append(arg)
+        i += 1
+    return rest, opts
+
+
+def _load_answers_file(path: str) -> List[tuple]:
+    """--answers file: a JSON/YAML mapping {question: answer}, or a list of
+    one-key mappings when the same question needs several answers in order."""
+    try:
+        text = Path(path).read_text()
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            import yaml
+            data = yaml.safe_load(text)
+        items = data.items() if isinstance(data, dict) else [kv for d in (data or []) for kv in d.items()]
+        return [(str(k), "" if v is None else str(v)) for k, v in items]
+    except Exception as e:
+        print(f"❌ Could not read --answers file {path}: {str(e).splitlines()[0]}")
+        print("   Expected {question: answer} pairs, or a list of one-pair mappings (see AUTOMATION.md).")
+        sys.exit(2)
+
+
+def _apply_global_options(opts: dict):
+    answers = []
+    if opts["answers"]:
+        answers.extend(_load_answers_file(opts["answers"]))
+    for item in opts["answer"]:
+        key, sep, value = item.partition("=")
+        if not sep:
+            print(f'❌ --answer expects "question=answer", got: {item}')
+            sys.exit(2)
+        answers.append((key.strip(), value.strip()))
+    # No terminal (scripts, CI, AI agents' shell tools) → never block on input()
+    no_tty = not sys.stdin.isatty() and os.environ.get("SPEKY_INTERACTIVE") != "1"
+    Console.configure(non_interactive=opts["non_interactive"] or no_tty,
+                      assume_yes=opts["yes"], answers=answers)
+    if opts["host"]:
+        os.environ["SPEKY_MODEL"] = "host"
+    elif opts["llm"]:
+        os.environ["SPEKY_MODEL"] = opts["llm"]
+    if not sys.stdout.isatty():
+        # Callers read our output while we run (e.g. host mode waiting for an answer)
+        sys.stdout.reconfigure(line_buffering=True)
+
+
+def _global_options_parser() -> argparse.ArgumentParser:
+    """Global options, shown in every command's --help (parsing is done by _extract_global_options)."""
+    parent = argparse.ArgumentParser(add_help=False)
+    g = parent.add_argument_group("global options (work before or after the command)")
+    g.add_argument("-y", "--yes", action="store_true",
+                   help="Answer yes to every confirmation; other questions take their default")
+    g.add_argument("--non-interactive", "--no-input", action="store_true",
+                   help="Never wait for keyboard input: use --answer values, else defaults "
+                        "(automatic when stdin is not a terminal; SPEKY_INTERACTIVE=1 disables that)")
+    g.add_argument("--answer", metavar='"QUESTION=VALUE"', action="append",
+                   help="Pre-answer any question whose text contains QUESTION (case-insensitive). "
+                        "Repeatable. For choices VALUE is the option number or part of its text")
+    g.add_argument("--answers", metavar="FILE",
+                   help="JSON/YAML file of {question: answer} pairs (same matching as --answer)")
+    g.add_argument("--llm", metavar="PROVIDER/MODEL",
+                   help="Model for this run only, e.g. openrouter/moonshotai/kimi-k2 (same as SPEKY_MODEL)")
+    g.add_argument("--host", action="store_true",
+                   help="Host mode: no LLM call — the agent running SPEKY answers each prompt "
+                        "(see `speky host guide`)")
+    return parent
+
+
 def main():
     """Main CLI entry point"""
     parser = argparse.ArgumentParser(
+        prog="speky",
         description="SPEKY v2: AI-Assisted Scalable Engineering Framework",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Choosing the AI model (any provider):
+  config --providers             List providers (OpenRouter, Nebius, OpenCode Go, Claude
+                                 subscription, Ollama, ...) and whether their keys are set
+  config --model                 Show the current model and pick a new one interactively
+  config --model PROVIDER/MODEL  Set it, e.g. openrouter/moonshotai/kimi-k2, claude-code/opus
+  --llm PROVIDER/MODEL           Use a model for one run only (or env SPEKY_MODEL)
+  Config file: ~/.speky/models.yaml (model, fallbacks, custom providers) — see MODELS.md
+
+Running from scripts and AI agents (Claude Code, Cursor, CI):
+  -y, --yes                      Answer yes to confirmations; other questions use defaults
+  --answer "QUESTION=VALUE"      Pre-answer a question (matched by text, repeatable)
+  --answers FILE                 Many answers from a JSON/YAML file
+  --non-interactive              Never prompt (automatic when stdin is not a terminal)
+  Each unattended answer is printed as "↳ question → answer". If a question has no
+  usable default, SPEKY exits with code 4 and prints the exact --answer to add.
+
+Host mode (the calling agent is SPEKY's model — no API key needed):
+  --host  (or SPEKY_MODEL=host)  SPEKY writes each prompt to .speky/host/NNN.prompt.md
+                                 and waits; the agent answers and SPEKY continues
+  host guide                     Instructions to give your agent (paste into CLAUDE.md)
+  host status                    Show prompts waiting for an answer
+  host show [ID]                 Print a waiting prompt
+  host answer ID --file F        Deliver an answer (or pipe it on stdin)
+
+Exit codes: 0 ok · 1 failed · 2 bad usage · 4 needs an --answer · 130 interrupted
+
 Core Commands:
   init "idea"                    Initialize SPEKY with your product idea
   spec "feature"                 Create feature spec (with optional research input)
@@ -20015,6 +20186,8 @@ Configuration:
   config --ides add <ide>        Add an IDE (e.g., antigravity)
   config --ides remove <ide>     Remove an IDE
   config --ides set <ide1,ide2>  Set specific IDEs (comma-separated)
+  config --model [REF]           Show/pick/set the AI model (see "Choosing the AI model")
+  config --providers             List AI providers and key status
 
 External Knowledge Import:
   import [--phase NAME]          Import docs from .speky/imports/<phase>/source/
@@ -20104,6 +20277,9 @@ Drift Types:
   DOC_STALE                Documentation doesn't match code (update docs)
 
 Examples:
+  speky config --model opencode-go/glm-5.2  # switch model for all projects
+  speky spec "Login" -y --answer "Add to phase=phase-1"   # no prompts
+  speky spec "Login" --host                # let the calling agent write the spec
   speky init "A mobile app for converting cooking videos to step-by-step recipes"
   speky import --phase mvp                   # Creates folder, guides you to add docs
   speky import --phase mvp                   # Import docs from .speky/imports/mvp/source/
@@ -20122,7 +20298,18 @@ Examples:
         """
     )
     
+    global_options = _global_options_parser()
+    global_group = parser.add_argument_group("global options (work before or after the command)")
+    for action in global_options._actions:
+        global_group._add_action(action)  # list global options in `speky --help`
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
+    _add_parser = subparsers.add_parser
+
+    def add_parser_with_global_options(name, **kwargs):
+        kwargs["parents"] = list(kwargs.get("parents", [])) + [global_options]
+        kwargs.setdefault("formatter_class", argparse.RawDescriptionHelpFormatter)
+        return _add_parser(name, **kwargs)
+    subparsers.add_parser = add_parser_with_global_options
     
     # init
     init_parser = subparsers.add_parser("init", help="Initialize SPEKY")
@@ -20266,7 +20453,11 @@ Examples:
                                help="Manage enabled IDEs: no args=show, add <ide>, remove <ide>, set <ide1,ide2,...>")
     config_parser.add_argument("--list-ides", action="store_true", help="List all supported IDEs")
     config_parser.add_argument("--model", nargs="?", const="", default=None,
-                               help="Set or show AI model. Pass env var key (e.g. GEMINI_MODEL) or model name directly.")
+                               metavar="PROVIDER/MODEL",
+                               help="No value: show current model and pick one interactively. With a value: "
+                                    "set it, e.g. openrouter/moonshotai/kimi-k2, claude-code/sonnet, host "
+                                    "(saved to ~/.speky/models.yaml). An env var name like GEMINI_MODEL is resolved.")
+    config_parser.add_argument("--providers", action="store_true", help="List AI providers and whether their keys are set")
     
     # design (Design System Management)
     design_parser = subparsers.add_parser("design", help="Manage design system (init, import, status, analyze, link, resolve, validate)")
@@ -20309,7 +20500,27 @@ Examples:
     test_parser.add_argument("--refresh", action="store_true", help="Refresh cached data (for setup command)")
     test_parser.add_argument("--e2e", action="store_true", help="Scaffold E2E infrastructure (for init command)")
     
-    args = parser.parse_args()
+    # host (Host mode: the calling agent answers SPEKY's prompts)
+    host_parser = subparsers.add_parser(
+        "host", help="Host mode: answer SPEKY's prompts from the agent that runs it",
+        description="In host mode (--host or SPEKY_MODEL=host) SPEKY makes no LLM calls. Each "
+                    "prompt is written to .speky/host/NNN.prompt.md and SPEKY waits until the "
+                    "answer is delivered, then continues.",
+        epilog="""Examples:
+  speky spec "Login" --host &        # run in the background; it waits on each prompt
+  speky host status                  # which prompt is waiting
+  speky host show                    # read it
+  speky host answer 001 --file answer.md
+  speky host guide >> CLAUDE.md      # teach your agent the loop""")
+    host_parser.add_argument("action", nargs="?", default="status",
+                             choices=["status", "show", "answer", "guide"],
+                             help="status (default) | show [ID] | answer ID | guide")
+    host_parser.add_argument("request_id", nargs="?", help="Request ID, e.g. 001 (default: oldest waiting)")
+    host_parser.add_argument("--file", "-f", help="Answer file for `answer` (default: read stdin)")
+
+    argv, global_opts = _extract_global_options(sys.argv[1:])
+    _apply_global_options(global_opts)
+    args = parser.parse_args(argv)
     
     if not args.command:
         parser.print_help()
@@ -20443,7 +20654,8 @@ Examples:
                 action=ides_action,
                 value=ides_value,
                 list_ides=args.list_ides,
-                model=args.model
+                model=args.model,
+                providers=args.providers
             )
         elif args.command == "design":
             success = speky.cmd_design(
@@ -20456,6 +20668,8 @@ Examples:
             )
         elif args.command == "phases":
             success = speky.cmd_phases(args.action, phase_id=args.phase_id, for_ai=args.for_ai)
+        elif args.command == "host":
+            success = speky.cmd_host(args.action, request_id=args.request_id, file=args.file)
         elif args.command == "context":
             success = speky.cmd_context(phase_id=args.phase, format=args.format)
         elif args.command == "test":

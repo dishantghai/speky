@@ -58,6 +58,10 @@ python3 -m nuitka \
   --include-package=anthropic \
   --include-package=dotenv \
   --include-package=requests \
+  --include-package=openai \
+  --include-package=yaml \
+  --include-module=speky_llm \
+  --include-module=traceai_config \
   --follow-imports \
   --assume-yes-for-downloads \
   --remove-output \

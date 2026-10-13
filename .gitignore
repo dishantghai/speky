@@ -1,4 +1,4 @@
-.DS_Store # if not already there
+.DS_Store
 
 *.env
 
@@ -6,3 +6,7 @@
 __pycache__/
 *.pyc
 *.pyo
+
+# Build / packaging artifacts
+*.egg-info/
+nuitka-crash-report.xml

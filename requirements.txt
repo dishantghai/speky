@@ -1,10 +1,15 @@
-# Primary AI provider (recommended)
+# AI provider SDKs — speky_llm routes provider/model refs to these
 anthropic>=0.39.0
+openai>=1.0.0          # also used for OpenRouter, Nebius, OpenCode Go, Groq, Ollama, ...
+google-genai>=1.0.0
 
 # Utilities
 python-dotenv>=1.0.0
 requests>=2.31.0
+pyyaml>=6.0            # ~/.speky/models.yaml
 
-# Optional AI provider fallbacks (install whichever you prefer)
-# openai>=1.0.0
-google-genai>=1.0.0
+# Optional: TraceAI observability (enabled when FI_API_KEY and FI_SECRET_KEY are set)
+fi-instrumentation-otel[grpc]>=1.1.0
+traceai-openai>=0.1.10
+traceai-anthropic>=0.1.10
+traceai-google-genai>=0.1.2
