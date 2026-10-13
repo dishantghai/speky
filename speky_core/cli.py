@@ -189,7 +189,9 @@ def run(argv: List[str]) -> dict:
     cmd = args.cmd
     if cmd == "setup" and args.list:
         return {"harnesses": list(harness.RECIPES)}
-    project = Project.open(require=cmd not in ("migrate",))
+    project = Project.open(require=cmd not in ("migrate", "setup"))
+    if cmd == "setup" and not project.dir.is_dir() and not (args.check or args.remove):
+        project.dir.mkdir()  # setup bootstraps a v3 project (no LLM needed, unlike v2 `init`)
 
     if cmd == "new":
         size = args.size or ("small" if args.kind == "story" else "change")

@@ -98,3 +98,12 @@ def test_speky_entry_point_routes_v3_commands(tmp_path, monkeypatch, capsys):
         speky.main()
     assert e.value.code == 0
     assert json.loads(capsys.readouterr().out)["item"] == "001"
+
+
+def test_setup_bootstraps_a_new_project(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    out = cli("setup", "claude-code")
+    assert out["check"]["status"] == "current"
+    assert (tmp_path / ".speky" / "speky.yaml").exists()
+    assert (tmp_path / ".speky" / "capabilities").is_dir()
+    assert cli("next")["action"] == "idle"
