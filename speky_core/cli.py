@@ -58,7 +58,7 @@ Building
   plan | context <id>                         planning / context packet (pointers for the agent)
   implement <id> (= start)  ·  evidence <id> <R#>  ·  verify <id>  ·  complete <id>  ·  archive <id>
   commit <id>  ·  review [<id>]  ·  cleanup  ·  test init|run|coverage|gaps|link|red|green
-  design status|screen add|list|approve|supersede|review|link|add|analysis|conflict|resolve
+  design status|screen add|list|approve|supersede|review|link (to a spec, story or task)|add|analysis|conflict|resolve
 
 Memory and session
   handoff  ·  checkpoint  ·  prime  ·  status | state | ready  ·  remember --topic  ·  knowledge [retire]
@@ -426,7 +426,7 @@ def _parser() -> argparse.ArgumentParser:
     ga.add_argument("--json", action="store_true")
     gl = gsub.add_parser("link")
     gl.add_argument("file", metavar="screen", help="screen ID (or a file name)")
-    gl.add_argument("item")
+    gl.add_argument("item", help="a spec, a story or a task (W<n>)")
     gl.add_argument("--json", action="store_true")
     gsc = gsub.add_parser("screen", help="screens: add, list, approve, supersede, review")
     ssub = gsc.add_subparsers(dest="screen_action", required=True)
@@ -436,7 +436,7 @@ def _parser() -> argparse.ArgumentParser:
     s_add.add_argument("--title", default="")
     s_add.add_argument("--kind", default="hifi", choices=["hifi", "lofi", "wireframe", "flow", "reference"])
     s_add.add_argument("--state", action="append", default=[], help="state shown (repeatable): default, empty, …")
-    s_add.add_argument("--for", dest="item", default=None)
+    s_add.add_argument("--for", dest="item", default=None, help="the spec, story or task (W<n>) it is for")
     s_add.add_argument("--source", default="", help="tool or link it came from (e.g. a Stitch project URL)")
     s_add.add_argument("--move", action="store_true", help="move the files instead of copying them")
     s_add.add_argument("--group", default="", help="group folder under the screens root, e.g. run-view/v3")
@@ -802,7 +802,10 @@ def run(argv: List[str]) -> dict:
             if not any(t["id"].lower() == args.id.lower() for t in tasks._tasks()) and tasks.archived(args.id):
                 return {**tasks.archived(args.id)[0], "archived": True}
             t = tasks.get(args.id)
+            from . import uxdesign
             return {**tasks._view(t), "evidence": t.get("evidence", {}),
+                    "screens": [{"id": s["id"], "status": s["status"], "path": s["path"]}
+                                for s in uxdesign.task_screens(project, t)],
                     "children": [x["id"] for x in tasks.list() if x.get("parent") == t["id"]]}
         if args.action == "promote":
             return tasks.promote(args.id, args.to, args.type, args.title)

@@ -204,3 +204,12 @@ def cite_screen(project: Project, item: Item, sid: str) -> None:
         section, sep, tail = rest.partition("\n## ")
         text = head + "## Design" + section.rstrip("\n") + f"\n- {ref}\n" + ("\n" if sep else "") + sep.lstrip("\n") + tail
     item.doc_path.write_text(text)
+
+
+def task_screens(project: Project, task: dict) -> List[dict]:
+    """Screens a task works from: its `screen:<id>` references, and screens that name the task."""
+    from . import design
+    rows = design.screens(project)
+    wanted = {r.split(":", 1)[1] for r in task.get("refs") or [] if r.startswith("screen:")}
+    return [s for s in rows if s["id"] in wanted or task["id"] in (s["items"] or [])]
+

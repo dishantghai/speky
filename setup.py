@@ -13,7 +13,7 @@ long_description = readme_file.read_text() if readme_file.exists() else ""
 
 setup(
     name="speky",
-    version="0.7.2",
+    version="0.7.3",
     description="Speky-AI-Assisted Scalable Engineering Framework - Thin orchestration layer for spec-driven development",
     long_description=long_description,
     long_description_content_type="text/markdown",

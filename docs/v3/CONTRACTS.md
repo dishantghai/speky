@@ -57,7 +57,11 @@ Also: `.speky/design/icons/`, `.speky/design/manifest.json` (technology, design 
 
 **Screens.** A screen's folder name is its ID, cited as `screen:<id>` (built-in reference). `screen.yaml`:
 `id, title, kind (hifi|lofi|wireframe|flow|reference), states, items, status (draft|approved|superseded|rejected), source,
-review, approved_by, supersedes / superseded_by`. `speky design screen add <id> <files> [--for <item>]
+review, approved_by, supersedes / superseded_by`. A screen belongs to specs, stories or tasks (`items`):
+`--for` / `speky design link <screen> <id|W<n>>` records it on the screen and cites it where the work is read —
+a change's `## Design`, or a task's references (`screen:<id>`); `speky task show` and `speky next` list a
+task's screens, promoting the task cites them in the new change's `## Design`, and `speky migrate` links
+screens that name a task only in their title. `speky design screen add <id> <files> [--for <item|task>]
 [--state …] [--move]`, `… approve <id> --by <owner>`, `… supersede <id> --by <new-id>`,
 `… review <id> --file <review.md> --result pass|fail`, `… list`. An approved screen is never overwritten:
 a new iteration gets a new ID. Screens can be grouped: a folder with `screen.yaml` is a screen at any depth

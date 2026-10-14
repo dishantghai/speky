@@ -297,11 +297,20 @@ def _roadmap_action(project: Project) -> Optional[dict]:
     from . import playbooks
 
     def with_playbook(action: dict, t: dict) -> dict:
+        from . import uxdesign
         books = playbooks.for_labels(project, t.get("labels") or [])
         if books:
             action["instruction"] = playbooks.instruction(books) + " " + action["instruction"]
             action["also_skills"] = [b["skill"] for b in books if b["skill"]]
             action["read"] = action["read"] + [r for b in books for r in b["read"]]
+        screens = uxdesign.task_screens(project, t)
+        if screens:
+            live = [s for s in screens if s["status"] not in ("superseded", "rejected")]
+            system = uxdesign.design_system(project)
+            action["screens"] = [{"id": s["id"], "status": s["status"], "path": s["path"]} for s in screens]
+            action["instruction"] = ("Screens for this task: " + ", ".join(f"{s['id']} ({s['status']})" for s in live) +
+                                     ". " + action["instruction"])
+            action["read"] = action["read"] + ([system] if system else []) + [s["path"] for s in live]
         return action
 
     doing = [t for t in tasks.list(status="doing") if not t.get("promoted_to")]

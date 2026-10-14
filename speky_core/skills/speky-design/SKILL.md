@@ -17,10 +17,10 @@ design skill using Stitch or Figma), follow it for *how* to design; store and ci
 
 1. **Find before you make.** `speky design status --json`: the design system, every screen (ID, status,
    items), UI items still needing a design, and design folders outside the layout. Read the screens
-   that could fit. Found → `speky design link <screen-id> <item>` (records it and cites it).
+   that could fit. Found → `speky design link <screen-id> <item|W<n>>` (records it and cites it; tasks too).
 2. **None exists → create it** with the playbook's tool or what is available (Stitch, Figma, an
    HTML/CSS mock). Start from the design system and the nearest existing screens; real content only.
-   Export it into the repo: `speky design screen add <screen-id> <files…> --for <item> --state <state>`
+   Export it into the repo: `speky design screen add <screen-id> <files…> --for <item|W<n>> --state <state>`
    (`--source <tool link>`). Never cite only a tool link.
 3. **Review it** against the design system and the requirements (every state, keyboard, contrast), write
    the review and record it: `speky design screen review <screen-id> --file <review.md> --result pass|fail`.

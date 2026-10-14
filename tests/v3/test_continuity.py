@@ -805,3 +805,31 @@ def test_handoff_tidies_by_default(repo):
     phases.set_status(repo, "p0", "done")
     out = continuity.handoff(repo, summary="s", title="t", run_tests=False, commit=False)
     assert out["tidied"] == {"tasks": ["W1"]}
+
+
+def test_screens_link_to_tasks_both_ways_and_follow_promotion(project, tmp_path):
+    from speky_core import design, migrate, uxdesign
+    png = tmp_path / "a.png"
+    png.write_bytes(b"png")
+    Tasks(project).add("Step target picker", labels=["ui"])
+    out = cli("design", "screen", "add", "RV-B6-step", str(png), "--for", "W1", "--group", "run-view/v6")
+    assert out["screen"] == "RV-B6-step"
+    assert "screen:RV-B6-step" in Tasks(project).get("W1")["refs"]
+    assert design.find_screen(project, "RV-B6-step")["items"] == ["W1"]
+    shown = cli("task", "show", "W1")
+    assert shown["screens"][0]["id"] == "RV-B6-step"
+    Tasks(project).set_status("W1", "doing")
+    nxt = protocol.next_action(project)
+    assert nxt["screens"][0]["id"] == "RV-B6-step" and ".speky/design/screens/run-view/v6/RV-B6-step" in nxt["read"]
+    assert cli("design", "status")["ui_tasks"][0]["screens"] == ["RV-B6-step"]
+    # promoting the task makes its screens the story's design
+    story = cli("task", "promote", "W1", "--title", "Step target picker")["item"]
+    doc = project.find(story).read_doc()
+    assert "- screen:RV-B6-step" in doc and "## References" not in doc
+    assert story in design.find_screen(project, "RV-B6-step")["items"]
+    # a screen that names a task only in its title is linked by migrate
+    Tasks(project).add("Dry-run marks")
+    cli("design", "screen", "add", "RV-B5-held", str(png), "--title", "Built: held cards (W2)")
+    assert migrate.screens_naming_tasks(project) == [("RV-B5-held", "W2")]
+    cli("migrate", "--apply")
+    assert "screen:RV-B5-held" in Tasks(project).get("W2")["refs"] and migrate.screens_naming_tasks(project) == []
