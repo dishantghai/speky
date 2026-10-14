@@ -79,6 +79,11 @@ speky archive 001                      # merges the change into the living specs
 speky commit 001                       # commit message built from the item; secrets are never staged
 ```
 
+UI changes (`--labels ui`) also get a `## Design` section: the change cites the screens or design
+files it implements, or SPEKY's `design` step has the agent find or create one (with Stitch, Figma
+or whatever the project uses) and the owner approves it before it is built. The project keeps one
+design-system document (`paths.design_system`), and implementation reads it with the cited designs.
+
 `speky context 001` lists what to read for an item and why: knowledge, decisions and ADRs, design,
 phase, epic, related specs, dependencies and the item itself. `speky status` shows the whole project.
 

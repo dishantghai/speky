@@ -81,6 +81,20 @@ def run_rubric(project: Project, item: Item, cfg: dict) -> List[dict]:
     check("dependencies", not unknown, "blocker", "Every dependency must be an existing item",
           ", ".join(unknown))
 
+    from . import uxdesign
+    if uxdesign.is_ui(project, item):
+        st = uxdesign.state(project, item)
+        check("design", uxdesign.satisfied(st), "major",
+              "UI change: say in `## Design` which design it implements (screen IDs like screen:<id>, design "
+              "files or links, per state), or \"No new design needed: <why>\". Find an existing design first; "
+              "if none exists, create one (speky-design skill)",
+              "to be designed" if st["to_design"] and not st["not_needed"] else ", ".join(st["cited"]))
+        check("design_refs", not st["broken"], "major", "Design references in `## Design` must exist",
+              ", ".join(st["broken"]))
+        check("design_system", bool(st["system"]), "major",
+              "This project has UI work but no design-system document: create one (speky-design skill) "
+              "and set `paths.design_system` in speky.yaml")
+
     lines = len([l for l in text.splitlines() if l.strip()])
     max_lines = cfg.get("max_spec_lines", 250)
     check("length", lines <= max_lines, "minor",

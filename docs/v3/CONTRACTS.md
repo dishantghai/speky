@@ -169,6 +169,14 @@ Rules (configurable in `speky.yaml`):
 - **Done checks** (`done_checks` in `speky.yaml`, §8) add per-label conditions: a command that must
   pass, a file that must exist, or a manual check recorded as evidence `check:<name>`
   (`speky evidence <id> check:screenshot --status met --evidence "..."`). `verify` fails until they hold.
+- **UI changes** (a label in `ui_labels`, default ui/ux/frontend, or a `## Design` section) must cite the
+  design they implement in `## Design` — `screen:<id>` refs, design files or links, or assets linked with
+  `speky design link` — or say "No new design needed: <why>"; and the project needs a design-system
+  document (`paths.design_system`). The rubric checks this (`design`, `design_refs`, `design_system`,
+  major); `speky next` returns a `design` action (speky-design skill + the `ui` playbook) before
+  validation, and at plan/start/implement adds the design system and cited designs to `read`.
+  `speky new … --labels ui` adds a `## Design` section; `speky design status` lists UI items still
+  needing a design.
 - **Tasks**: `speky verify W<n>` (or `speky task done W<n> --verify`) runs the verify command and the done
   checks of the task's labels (not `all`), and closes the task only when both pass. Manual checks:
   `speky evidence W<n> check:<name> --status met --evidence "..."`.
@@ -233,7 +241,7 @@ Failures: `{"ok": false, "error": {"code": "...", "message": "...", "fix": "..."
 - `speky ready --json` — items ready to work, by priority then ID.
 - `speky next [<id>] --json` — the one next action:
   `{action, item, why, instruction, skill, commands: [...], read: [...], done_when}` where
-  `action ∈ propose | fix_structure | validate | resolve_gate | plan | start | implement | archive |
+  `action ∈ propose | design | fix_structure | validate | resolve_gate | plan | start | implement | archive |
   task | gate | phase | idle` (`task`: the next task W<n>; `gate`/`phase`: the current phase's
   deliverables need verifying / the phase can be completed).
 - `speky check <id> --json`, `speky verify <id> --json` — results as above.

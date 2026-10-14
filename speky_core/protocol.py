@@ -43,9 +43,16 @@ def _action(action, item: Optional[Item], why, instruction, skill=None, commands
 
 
 def action_for(project: Project, item: Item) -> dict:
-    from . import playbooks
+    from . import playbooks, uxdesign
     result = _item_action(project, item)
-    if result["action"] in ("plan", "start", "implement", "validate", "propose"):
+    if result["action"] in ("plan", "start", "implement") and uxdesign.is_ui(project, item):
+        st = uxdesign.state(project, item)
+        files = ([st["system"]] if st["system"] else []) + [c for c in st["cited"] if not c.startswith("http")]
+        result["instruction"] = ("Build what the cited designs show, in every state, with the design system's "
+                                 "tokens and components: " + ", ".join(files or st["cited"]) + ". "
+                                 + result["instruction"])
+        result["read"] = result["read"] + [f for f in files if f not in result["read"]]
+    if result["action"] in ("plan", "start", "implement", "validate", "propose", "design"):
         books = playbooks.for_labels(project, item.load_status().get("labels") or [])
         if books:
             result["instruction"] = playbooks.instruction(books) + " " + result["instruction"]
@@ -89,6 +96,31 @@ def _item_action(project: Project, item: Item) -> dict:
                        "recommended answer; put informed guesses under ## Assumptions.",
                        skill="speky-propose", read=[doc], commands=[f"speky check {item.id} --json"],
                        done_when=f"`speky check {item.id}` has no blockers")
+
+    from . import uxdesign
+    if status in ("draft", "ready") and uxdesign.is_ui(project, item):
+        st = uxdesign.state(project, item)
+        if not uxdesign.satisfied(st) or not st["system"]:
+            todo = []
+            if not st["system"]:
+                todo.append("there is no design-system document yet: create it from the existing UI (tokens, "
+                            "type, spacing, components) or the first approved screens, and set "
+                            "`paths.design_system`")
+            if not uxdesign.satisfied(st):
+                todo.append("find the design this change implements: `speky design status`, the screen "
+                            "catalogue and `refs` (screen:<id>); if one exists, cite it in `## Design`. If none "
+                            "exists, create it with the project's design tool (its playbook, or whatever is "
+                            "available: Stitch, Figma, an HTML mock), save it in the repo, give it an ID, "
+                            "review it, and cite it. Show new designs to the owner before building: design "
+                            "is their call")
+            return _action("design", item, "UI change without " + (
+                               "a cited design" if not uxdesign.satisfied(st) else "a design system") + ".",
+                           "This change affects what users see; " + "; ".join(todo) + ".",
+                           skill="speky-design", read=[doc] + ([project.root / st["system"]] if st["system"] else []),
+                           commands=["speky design status --json", "speky refs --json",
+                                     f"speky gate add {item.id} --type human --reason \"approve the design\"",
+                                     f"speky check {item.id} --json"],
+                           done_when=f"`## Design` in {rel_doc} cites the design and a design system exists")
 
     if status in ("draft", "ready") and not validation.is_converged(item):
         val = item.load_status().get("validation") or {}

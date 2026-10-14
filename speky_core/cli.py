@@ -614,6 +614,8 @@ def run(argv: List[str]) -> dict:
             extra["phase"] = phases_mod.get(project, args.phase).id
         if extra:
             item.update_status(**extra)
+        from . import uxdesign
+        uxdesign.ensure_section(project, item)  # UI changes say which design they implement
         if args.epic:
             epics_mod.attach(project, args.epic, item.id)
         if args.discovered_from:
@@ -801,6 +803,8 @@ def run(argv: List[str]) -> dict:
         if not changes:
             raise SpekyError("nothing_to_set", "Give --status and/or --labels.")
         item.update_status(**changes)
+        from . import uxdesign
+        uxdesign.ensure_section(project, item)
         return {"item": item.id, **changes}
     # ---- one SPEKY: native homes of the v2 commands
     if cmd in REMOVED:

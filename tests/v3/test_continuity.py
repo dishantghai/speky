@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from speky_core import continuity, harness, journal, knowledge, phases, protocol, refs, verification
+from speky_core import continuity, harness, journal, knowledge, phases, protocol, refs, validation, verification
 from speky_core.errors import SpekyError
 from speky_core.owner import OwnerActions
 from speky_core.tasks import Tasks
@@ -414,3 +414,52 @@ def test_labelled_task_must_meet_its_done_checks(project):
     assert cli("verify", "W1", expect=2)["missing"] == ["done check review (ui): a recorded UX review"]  # `all` not applied
     cli("evidence", "W1", "check:review", "--status", "met", "--evidence", "docs/ux/reviews/x.md PASS")
     assert cli("task", "done", "W1", "--verify")["status"] == "done"
+
+
+def test_ui_changes_must_cite_a_design_and_the_project_needs_a_design_system(project):
+    from speky_core import config, uxdesign
+    (project.root / "docs" / "ux" / "screens").mkdir(parents=True)
+    (project.root / "docs" / "ux" / "screens" / "README.md").write_text("| `LE-1-main` | Layers editor |\n")
+    cfg = project.config
+    cfg["refs"] = {"screen": {"file": "docs/ux/screens/README.md", "contains": "`{id}`"}}
+    config.save(project.root, cfg)
+    out = cli("story", "Layers editor", "--labels", "ui")
+    item = project.find(out["item"])
+    doc = item.read_doc()
+    assert "## Design" in doc and "To be designed" in doc
+    item.doc_path.write_text(GOOD_SPEC.replace("## Requirements", "## Design\nTo be designed\n\n## Requirements"))
+    nxt = protocol.next_action(project)
+    assert nxt["action"] == "design" and nxt["skill"] == "speky-design"
+    assert "no design-system document" in nxt["instruction"] and "approve the design" in " ".join(nxt["commands"])
+    rubric = {r["rubric"]: r["passed"] for r in validation.run_rubric(project, item, project.config)}
+    assert rubric["design"] is False and rubric["design_system"] is False
+    # cite the screen and create the design system
+    (project.root / "docs" / "ux" / "DESIGN.md").write_text("# Design system\n")
+    cfg["paths"] = {"design_system": "docs/ux/DESIGN.md"}
+    config.save(project.root, cfg)
+    item.doc_path.write_text(GOOD_SPEC.replace(
+        "## Requirements", "## Design\n- Screens: screen:LE-1-main (default), screen:LE-9-gone (empty)\n\n## Requirements"))
+    st = uxdesign.state(project, item)
+    assert st["cited"] == ["docs/ux/screens/README.md"] and st["broken"] == ["screen:LE-9-gone"]
+    rubric = {r["rubric"]: r["passed"] for r in validation.run_rubric(project, item, project.config)}
+    assert rubric["design"] and rubric["design_system"] and not rubric["design_refs"]
+    item.doc_path.write_text(GOOD_SPEC.replace(
+        "## Requirements", "## Design\n- Screens: screen:LE-1-main\n\n## Requirements"))
+    assert protocol.next_action(project)["action"] == "validate"
+    cli("check", item.id)
+    item.update_status(status="in_progress")
+    nxt = protocol.next_action(project)
+    assert nxt["action"] == "implement" and "docs/ux/DESIGN.md" in nxt["read"]
+    assert "Build what the cited designs show" in nxt["instruction"]
+    status = cli("design", "status")
+    assert status["design_system"] == "docs/ux/DESIGN.md" and status["needing_design"] == []
+
+
+def test_no_new_design_needed_is_a_valid_answer_and_design_decisions_is_not_a_design_section(project):
+    from speky_core import uxdesign
+    item = spec(project, body=GOOD_SPEC.replace("## Requirements", "## Design decisions\nUse SQLite.\n\n## Requirements"))
+    assert not uxdesign.is_ui(project, item)
+    item.update_status(labels=["ui"])
+    item.doc_path.write_text(GOOD_SPEC.replace(
+        "## Requirements", "## Design\nNo new design needed: the button reuses the existing toolbar.\n\n## Requirements"))
+    assert uxdesign.satisfied(uxdesign.state(project, item))

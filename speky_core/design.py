@@ -143,11 +143,27 @@ def resolve_conflict(project: Project, cid: str, value: str, reason: str) -> dic
 
 
 def status(project: Project) -> dict:
-    data = _manifest(project)
+    """Where the project's design lives and which UI changes still need one (works without `design init`)."""
+    from . import uxdesign
+    data = _manifest(project) if (design_dir(project) / "manifest.json").exists() else {}
     imgs = data.get("hifi_images", []) + data.get("lofi_images", [])
-    return {"technology": data.get("technology"), "system_doc": data.get("system_doc"),
+    catalogues = sorted({spec["file"] for spec in (project.config.get("refs") or {}).values()
+                         if isinstance(spec, dict) and spec.get("file")} |
+                        {spec["glob"] for spec in (project.config.get("refs") or {}).values()
+                         if isinstance(spec, dict) and spec.get("glob")})
+    ui_items = []
+    for item in project.items():
+        if item.info()["status"] not in ("archived", "completed") and uxdesign.is_ui(project, item):
+            st = uxdesign.state(project, item)
+            ui_items.append({"item": item.id, "title": item.info()["title"], "designed": uxdesign.satisfied(st),
+                             "cited": st["cited"], "broken": st["broken"]})
+    playbook = (project.config.get("playbooks") or {})
+    return {"design_system": uxdesign.design_system(project), "technology": data.get("technology"),
+            "catalogues": catalogues, "playbooks": {k: v.get("skill") for k, v in playbook.items()
+                                                    if isinstance(v, dict)},
             "images": len(imgs), "analyzed": len([i for i in imgs if i.get("analysis_path")]),
             "unlinked": [i["filename"] for i in imgs if not i.get("related_specs")],
             "icons": len(data.get("icons", [])),
             "open_conflicts": [c for c in data.get("conflicts", []) if not c.get("resolution")],
-            "components": data.get("components", [])}
+            "components": data.get("components", []),
+            "ui_items": ui_items, "needing_design": [u["item"] for u in ui_items if not u["designed"]]}

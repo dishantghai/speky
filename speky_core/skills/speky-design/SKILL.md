@@ -12,6 +12,21 @@ says; screens are cited by ID (`screen:<id>`, checked by `speky refs`); reviews 
 recorded as evidence for the item's done checks (`speky evidence <id> check:<name> ...`); design
 follow-ups become tasks. Use the steps below when the project has no workflow of its own.
 
+## Design for one change (`speky next` says design)
+
+1. **Find before you make.** `speky design status --json` (design system, catalogues, linked assets,
+   UI items still needing a design); search the screen catalogue and design folders for this
+   feature. Found → cite it in the item's `## Design` (`screen:<id>` or the file path, per state).
+2. **None exists → create it** with the tool the project uses (its `ui` playbook) or what is
+   available (Stitch, Figma, an HTML/CSS mock in the repo). Start from the design system and existing
+   screens; use real content, not invented numbers. Save the result in the repo, give it an ID in
+   the catalogue (or `speky design add <file> --for <id>`), then cite it.
+3. **Review it** against the design system and the requirements (every state, keyboard, contrast).
+4. **The owner approves new designs** before anything is built:
+   `speky gate add <id> --type human --reason "approve the design"`; resolve it with their answer.
+5. **No design system yet?** Write one from the existing UI (or the first approved screens) and
+   `speky config set paths.design_system <file>`.
+
 1. **Set up once:** `speky design init --tech <ui technology>`. Add assets:
    `speky design add <file-or-folder> --type system|hifi|lofi|icon [--for <item>]`.
    Link screens to the work they belong to: `speky design link <file> <item>`.

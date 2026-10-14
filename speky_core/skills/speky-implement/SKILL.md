@@ -7,6 +7,9 @@ description: Use when `speky next` says start or implement, or when implementing
 
 1. `speky start <id>` — records the base commit verification diffs from. `speky context <id> --json`
    lists what to read (design, phase, epic, related specs, decisions, knowledge topics).
+   UI changes: build what the designs cited in `## Design` show, in every state, with the design
+   system's tokens and components (`speky next` lists the files). A difference you need is a
+   decision for the owner, not a silent change; done checks may ask for screenshots and a review.
 2. Work task by task from plan.md (or the requirements for small items). Write the test first when
    the project has tests; for test-first work record the proof with `speky test red|green`
    (speky-test skill).
