@@ -248,7 +248,11 @@ def _parser() -> argparse.ArgumentParser:
     tp.add_argument("id")
     tp.add_argument("--to", default="story", choices=["story", "spec"])
     tp.add_argument("--type", default="feature", choices=list(STORY_PREFIXES))
+    tp.add_argument("--title", default=None, help="title of the new item (default: the task's text)")
     tp.add_argument("--json", action="store_true")
+    tw = tsub.add_parser("show")
+    tw.add_argument("id")
+    tw.add_argument("--json", action="store_true")
     tl = tsub.add_parser("list")
     tl.add_argument("--phase", default=None)
     tl.add_argument("--status", default=None, choices=["todo", "doing", "done", "deferred"])
@@ -724,8 +728,12 @@ def run(argv: List[str]) -> dict:
             return tasks.add(args.text, args.phase, args.epic, args.parent, refs_, labels=labels_)
         if args.action == "list":
             return {"tasks": tasks.list(args.status, args.phase)}
+        if args.action == "show":
+            t = tasks.get(args.id)
+            return {**tasks._view(t), "evidence": t.get("evidence", {}),
+                    "children": [x["id"] for x in tasks.list() if x.get("parent") == t["id"]]}
         if args.action == "promote":
-            return tasks.promote(args.id, args.to, args.type)
+            return tasks.promote(args.id, args.to, args.type, args.title)
         if args.action == "done" and args.verify:
             result = tasks.verify(args.id)
             if not result["passed"]:

@@ -11,7 +11,9 @@ Goal: a short contract someone could build without guessing — and no longer th
    at most 5 in total, each with your recommended answer** and one line on why it matters. Ask only
    what changes what gets built. If the code can answer it, read the code instead of asking.
    Skip questions the user opted out of; state your defaults out loud instead.
-2. Create the item if it doesn't exist: `speky new spec "<title>"` (or `speky new story ...`).
+2. Create the item if it doesn't exist. Work that comes from a task: `speky task promote W<n>
+   [--title "<title>"]` (keeps its phase, labels and references); otherwise `speky new spec "<title>"`
+   (or `speky new story ...`; add `--labels ui` for UI work).
 3. Write the document (`spec.md` / `story.md`):
    - `## Why` — the problem and who has it.
    - `## Capabilities` — what is true when it's done.

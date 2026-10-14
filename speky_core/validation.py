@@ -82,6 +82,11 @@ def run_rubric(project: Project, item: Item, cfg: dict) -> List[dict]:
           ", ".join(unknown))
 
     from . import uxdesign
+    hints = uxdesign.looks_user_facing(project, item)
+    check("ui_label", not hints, "major",
+          "This change reads as user-facing (" + ", ".join(hints[:6]) + "). If it changes what users see, label "
+          "it (`speky set " + item.id + " --labels ui`: adds `## Design`); if not, add `## Design` with \"No new "
+          "design needed: <why>\"", ", ".join(hints))
     if uxdesign.is_ui(project, item):
         st = uxdesign.state(project, item)
         check("design", uxdesign.satisfied(st), "major",

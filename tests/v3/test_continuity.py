@@ -463,3 +463,23 @@ def test_no_new_design_needed_is_a_valid_answer_and_design_decisions_is_not_a_de
     item.doc_path.write_text(GOOD_SPEC.replace(
         "## Requirements", "## Design\nNo new design needed: the button reuses the existing toolbar.\n\n## Requirements"))
     assert uxdesign.satisfied(uxdesign.state(project, item))
+
+
+def test_promote_carries_labels_and_refs_and_unlabelled_ui_text_is_flagged(project):
+    from speky_core import config
+    cfg = project.config
+    cfg["playbooks"] = {"ui": {"skill": "screen-design-narratives"}}
+    config.save(project.root, cfg)
+    Tasks(project).add("Next screens", labels=["ui"], refs=["adr:0021"])
+    out = cli("task", "promote", "W1", "--title", "Layers editor")
+    item = project.find(out["item"])
+    assert out["carried"] == ["labels", "refs"] and item.load_status()["labels"] == ["ui"]
+    doc = item.read_doc()
+    assert "## Design" in doc and "- adr:0021" in doc and item.info()["title"] == "Layers editor"
+    assert cli("task", "show", "W1")["promoted_to"] == item.id
+    # a change written without the label, in a UI project
+    plain = spec(project, body=GOOD_SPEC.replace("## Requirements",
+                                                 "The editor panel lists layers; click a tab to switch views.\n\n## Requirements"))
+    rubric = {r["rubric"]: r for r in validation.run_rubric(project, plain, project.config)}
+    assert not rubric["ui_label"]["passed"] and "panel" in rubric["ui_label"]["evidence"]
+    assert "label it" in protocol.action_for(project, spec(project, "Empty", body=None))["instruction"]

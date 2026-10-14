@@ -123,15 +123,24 @@ class Tasks:
         self.save()
         return {"task": t["id"], "check": check, "status": status}
 
-    def promote(self, ref: str, to: str = "story", story_type: str = "feature") -> dict:
+    def promote(self, ref: str, to: str = "story", story_type: str = "feature", title: str = None) -> dict:
+        """The task becomes a story or spec; its phase, labels and references carry over."""
+        from . import uxdesign
         t = self.get(ref)
-        item = self.project.create("spec" if to == "spec" else "story", t["name"][:80], story_type=story_type,
-                                   size="small" if to == "story" else "change")
-        item.update_status(from_task=t["id"], **({"phase": t["phase"]} if t.get("phase") else {}))
+        item = self.project.create("spec" if to == "spec" else "story", (title or t["name"])[:80],
+                                   story_type=story_type, size="small" if to == "story" else "change")
+        carry = {k: t[k] for k in ("phase", "labels", "refs") if t.get(k)}
+        item.update_status(from_task=t["id"], **carry)
+        if t.get("refs"):  # cite them in the document too, where the implementer reads
+            text = item.read_doc()
+            item.doc_path.write_text(text.rstrip() + "\n\n## References\n" +
+                                     "".join(f"- {r}\n" for r in t["refs"]))
+        uxdesign.ensure_section(self.project, item)
         t["promoted_to"] = item.id
         t["status"] = "doing"
         self.save()
-        return {"task": t["id"], "item": item.id, "doc": str(item.doc_path.relative_to(self.project.root))}
+        return {"task": t["id"], "item": item.id, "doc": str(item.doc_path.relative_to(self.project.root)),
+                "carried": sorted(carry)}
 
     def render(self) -> None:
         """Readable view: `.speky/tasks.md` (generated)."""

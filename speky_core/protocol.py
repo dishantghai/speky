@@ -61,6 +61,11 @@ def action_for(project: Project, item: Item) -> dict:
     return result
 
 
+def _project_has_ui(project: Project) -> bool:
+    from . import uxdesign
+    return uxdesign.project_has_ui(project)
+
+
 def _item_action(project: Project, item: Item) -> dict:
     info = item.info()
     doc = item.doc_path
@@ -93,7 +98,10 @@ def _item_action(project: Project, item: Item) -> dict:
         return _action("propose", item, f"{rel_doc} is empty or still the template.",
                        "Write the change: why, capabilities, non-goals, requirements `### R1:` with "
                        "WHEN/THEN scenarios. Ask at most 5 questions, one at a time, each with your "
-                       "recommended answer; put informed guesses under ## Assumptions.",
+                       "recommended answer; put informed guesses under ## Assumptions."
+                       + (" This project has UI: if the change affects what users see, label it "
+                          f"(`speky set {item.id} --labels ui`) and fill `## Design`." if _project_has_ui(project)
+                          else ""),
                        skill="speky-propose", read=[doc], commands=[f"speky check {item.id} --json"],
                        done_when=f"`speky check {item.id}` has no blockers")
 
@@ -152,7 +160,8 @@ def _item_action(project: Project, item: Item) -> dict:
                            "verifies each. No hour estimates.",
                            skill="speky-plan", read=[doc], commands=[f"speky start {item.id}"],
                            done_when=f"{item.path.relative_to(project.root)}/plan.md exists")
-        return _action("start", item, "Validated and planned.",
+        return _action("start", item, "Validated; " + ("planned." if (item.path / "plan.md").exists()
+                                                         else f"no plan needed ({size})."),
                        "Record the starting commit, then implement.",
                        skill="speky-implement", commands=[f"speky start {item.id}"],
                        done_when="status is in_progress")

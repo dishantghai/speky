@@ -40,6 +40,26 @@ def ui_labels(project: Project) -> List[str]:
     return list(project.config.get("ui_labels") or DEFAULT_UI_LABELS)
 
 
+UI_WORDS_RE = re.compile(r"\b(screens?|pages?|panels?|views?|buttons?|dialogs?|modals?|tabs?|forms?|layouts?|"
+                         r"click(?:s|ed|ing)?|hover|keyboard|UI|UX|sidebar|toolbar|menus?|inspector|editor|"
+                         r"dark mode|light mode|theme)\b", re.I)
+
+
+def project_has_ui(project: Project) -> bool:
+    """Signals that this project builds things people see: a design system, a ui playbook, UI labels in use."""
+    if design_system(project) or set(project.config.get("playbooks") or {}) & set(ui_labels(project)):
+        return True
+    return any(set(i.load_status().get("labels") or []) & set(ui_labels(project)) for i in project.items())
+
+
+def looks_user_facing(project: Project, item: Item) -> List[str]:
+    """UI words in an unlabelled change of a UI project (a prompt to decide, not a verdict)."""
+    if is_ui(project, item) or not project_has_ui(project):
+        return []
+    words = [m.group(0).lower() for m in UI_WORDS_RE.finditer(md.strip_comments(item.read_doc()))]
+    return sorted(set(words)) if len(words) >= 3 else []
+
+
 def has_ui_label(project: Project, item: Item) -> bool:
     return bool(set(item.load_status().get("labels") or []) & set(ui_labels(project)))
 
