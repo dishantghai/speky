@@ -31,7 +31,7 @@ COMMANDS = {"capabilities", "task", "phases", "owner", "knowledge", "handoff", "
             "import", "import-status", "design", "test", "config", "backlog", "adopt", "validate-spec",
             "validate-story", "plan", "implement", "complete", "sequence", "infer-deps", "mark-foundation",
             "reset-deps", "fix-circular-deps", "decisions", "reconcile", "poc-import", "spec", "story",
-            "renumber", "host", "sync", "new", "state", "ready", "next", "check", "finding", "start", "evidence", "verify",
+            "renumber", "host", "sync", "run", "new", "state", "ready", "next", "check", "finding", "start", "evidence", "verify",
             "archive", "decide", "remember", "adr", "term", "gate", "link", "prime", "setup",
             "migrate", "set"}
 
@@ -435,8 +435,20 @@ def _parser() -> argparse.ArgumentParser:
         xt.add_argument("--cmd", dest="test_cmd", required=True, help="command that runs just this test")
         xt.add_argument("--json", action="store_true")
 
+    sp = add("run", help="SPEKY's own agent (no coding agent needed; uses a configured model)")
+    sp.add_argument("goal", nargs="?", default="")
+    sp.add_argument("--next", action="store_true", help="work through `speky next` until idle")
+    sp.add_argument("--model", default=None, help="provider/model for this run")
+    sp.add_argument("--max-steps", type=int, default=60)
+    sp.add_argument("--allow-shell", action="store_true", help="allow any shell command (default: tests and read-only git)")
+
     sp = add("config", help="show or change .speky/speky.yaml")
     csub = sp.add_subparsers(dest="action")
+    cm = csub.add_parser("model", help="show or set the model `speky run` uses (~/.speky/models.yaml)")
+    cm.add_argument("ref", nargs="?")
+    cm.add_argument("--json", action="store_true")
+    cp = csub.add_parser("providers", help="model providers and whether they are ready")
+    cp.add_argument("--json", action="store_true")
     cg = csub.add_parser("get")
     cg.add_argument("key", nargs="?")
     cg.add_argument("--json", action="store_true")
@@ -537,6 +549,29 @@ def run(argv: List[str]) -> dict:
     cmd = args.cmd
     if cmd == "setup" and args.list:
         return {"harnesses": list(harness.RECIPES)}
+    if cmd == "run":
+        from . import runner
+        proj = Project.open(require=False)
+        goal = args.goal or ("Do the next SPEKY action (`speky next`), then continue with the following ones "
+                             "until `speky next` says idle or you need the owner. Hand off at the end."
+                             if args.next else "")
+        if not goal:
+            raise SpekyError("goal_required", "Say what to do: speky run \"<what you want>\", or --next.")
+        r = runner.Runner(proj, runner.make_completer(proj, args.model), allow_shell=args.allow_shell,
+                          max_steps=args.max_steps)
+        return r.run(goal)
+    if cmd == "config" and args.action in ("model", "providers"):
+        from speky_llm import LLMRouter, save_model
+        proj = Project.open(require=False)
+        router = LLMRouter(project_root=proj.root)
+        if args.action == "providers":
+            return {"providers": {name: router.status(name) for name in sorted(router.providers)},
+                    "model": router.model_ref}
+        if args.ref:
+            router.resolve(args.ref)  # validates provider/model
+            save_model(args.ref)
+            return {"model": args.ref, "file": "~/.speky/models.yaml"}
+        return {"model": router.model_ref, "fallbacks": router.fallbacks}
     if cmd == "init":
         from . import bootstrap
         from .config import find_root
