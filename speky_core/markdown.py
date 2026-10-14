@@ -19,6 +19,7 @@ SECTION_ALIASES = {
     "requirements": ["requirements"],
     "assumptions": ["assumptions"],
     "open_questions": ["open questions"],
+    "design": ["design", "ux", "ui design", "screens"],
 }
 
 
@@ -70,7 +71,8 @@ def find_section(text: str, key: str) -> Optional[str]:
     found = sections(text)
     for name, body in found.items():
         clean = re.sub(r"[^a-z -]", "", name).strip()
-        if any(clean == alias or clean.startswith(alias) for alias in SECTION_ALIASES[key]):
+        exact = key == "design"  # "## Design decisions" is not a design section
+        if any(clean == alias or (not exact and clean.startswith(alias)) for alias in SECTION_ALIASES[key]):
             return body
     return None
 

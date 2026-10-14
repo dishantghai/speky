@@ -1,36 +1,51 @@
 ---
 name: speky-migrate
-description: Use when a project has a SPEKY v2 .speky/ folder (specs/, stories/, context/) and the user wants it moved to SPEKY v3, or `speky migrate` reports pending steps. Migrates without losing any v2 data.
+description: Use when a project has a SPEKY v2 .speky/ folder (context/, config.yaml, specs/, stories/), keeps continuity notes by hand (STATE/PLAN/LOG/KNOWLEDGE files, owner to-do lists, a session protocol in AGENTS.md), or `speky migrate` reports pending steps. Brings it onto SPEKY without losing anything.
 ---
 
-# Migrate a SPEKY v2 project to v3
+# Bring a project onto SPEKY
 
-v3 reads the same `.speky/specs/` and `.speky/stories/` folders; nothing is moved or deleted.
-Work on a branch and keep the user's uncommitted files untouched.
+Nothing is moved or deleted: SPEKY reads v2's specs, stories, epics, phases, backlog and design files
+as they are. Work on a branch; never stage or change the user's unrelated uncommitted files.
 
-1. `git status` — note files the user hasn't committed; never stage or change them.
-   `git checkout -b chore/speky-v3`.
-2. `speky migrate --json` (dry run). Read every reported issue.
-3. `speky migrate --apply` — writes `.speky/speky.yaml`, `.speky/capabilities/`, normalises
-   `status.json`. Re-run the dry run: it must report nothing left to apply.
-4. `speky setup <harness>` for each harness the team uses (`claude-code`, `codex`, `agents-md`).
-   This replaces the old 1,000-line v2 rules block with a small managed block, keeps the user's own
-   rules, and backs the old file up under `.speky/backups/`. Then `speky setup <harness> --check`.
-5. Seed living specs from **completed** items — the part that needs judgement:
-   - Group completed specs/stories by capability (a user-visible area such as `browser-tabs`).
-   - For each capability write `.speky/capabilities/<capability>/spec.md` with `## Purpose` and
-     requirements `### <capability>-R<n>: <title>` + WHEN/THEN scenarios **describing what the code
-     does today** — read the code; don't copy spec text that was never built.
-   - Completed items whose v2 drift review was skipped (`speky migrate` lists them) are suspect:
-     check the code before claiming the behaviour exists; record gaps as new bug/tech_debt stories.
-   - Put `<!-- speky:next-id N -->` above `## Requirements` (N = highest R number + 1).
-   - `speky capabilities --json` must report `"valid": true` (format: the speky-verify skill, step 3).
-6. Open items (draft/ready/in_progress): run `speky check <id>`; add requirement IDs and scenarios
-   where the rubric asks. Don't rewrite intent.
-7. Mark each handled judgement task: `speky migrate --done check_suspect_completions` (and
-   `add_requirement_ids` when done). Record the migration:
-   `speky decide "Migrated to SPEKY v3" --type event`.
-8. Verify: `speky capabilities --json` is valid; `speky state --json` lists every item; `speky next --json` returns a sensible action;
-   `speky setup <harness> --check` says current; the v2 commands (`speky status`) still work.
-   Commit only `.speky/`, the harness files and the instruction files — never the user's
-   unrelated changes.
+1. `git status` (note the user's files) → `git checkout -b chore/speky`.
+2. `speky migrate --json` (dry run) → `speky migrate --apply` → dry run again: nothing pending.
+   It also moves v2's product profile and tech stack into knowledge and its backlog file into the
+   backlog; read what it reports.
+3. `speky setup <harness>` for each tool the team uses (`speky setup --list`; v2's cursor, windsurf, vscode and antigravity rules files are cleaned up) → `speky setup <h> --check`
+   says current. The old v2 rules block is replaced (your own rules kept; backup in `.speky/backups/`).
+   If CLAUDE.md only imports AGENTS.md, the block goes into AGENTS.md.
+4. `speky test init`; check `speky config get verify_command`.
+
+## Adopt hand-kept continuity notes (if the project has them)
+Map each kind of note to its SPEKY home with the generic commands — keep the wording, drop nothing:
+| Hand-kept | SPEKY |
+|---|---|
+| Plan with phases/milestones and gates | `speky phases add "<name>" --id <id>`; each gate line → `speky phases deliverable <id> "<text>" [--run "<cmd>"]`; finished ones → `speky phases verify`/`complete --force "<why>"` |
+| Checklist items (done/in progress/todo/deferred), nested | `speky task add "<text>" --phase <id> [--parent W<n>]`, then `speky task done|start|defer` — keep citations as `--refs adr:0021,screen:RV-1` |
+| Knowledge / gotchas / owner preferences by topic | `speky remember "<entry>" --topic <topic> [--always] [--read-when "<trigger>"]`; owner preferences → `--topic owner --always` |
+| Session log | keep it; start new entries with `speky handoff`. Note the old file's location in the first handoff. |
+| Current state / next actions / watch-outs | first `speky handoff --file <notes.md>` with `## Summary`, `## Next`, `## Watch out for` copied from it |
+| Owner-only to-dos (with the owner's notes) | `speky owner add "<text>" --section "<section>"`; ticked → `speky owner done`; keep notes with `--note` |
+| ADRs elsewhere | `speky config set paths.adr_dir <dir>` (SPEKY uses that folder and its template) |
+| Cited IDs (screens, ADRs) | `speky config set refs.<kind>.glob "<pattern with {id}>"`; `speky refs --json` must be valid |
+| Definition of done rules (e.g. UI needs a review file) | `speky config set done_checks.<label> ...` (file / run / manual checks), label items with `--labels` |
+| A workflow for a kind of work (e.g. UI: narratives → design tool → UX review) | `playbooks.<label>` in speky.yaml (`skill`, `read`, `note`); label the items/tasks (`--labels ui`, `speky set W<n> --labels ui`) |
+| Skills the project relies on (in a user folder such as `~/.claude/skills/`) | `extra_skills: [<path>]` in speky.yaml; `speky setup <harness>` installs them for every tool |
+| Open items that touch the UI (`classify_ui_items`) | per item: `speky set <id> --labels ui` and cite its screens (`speky design link <screen> <id>`), or `## Design` with "No new design needed: <why>" |
+| Design system, screens, reviews kept elsewhere (`speky layout --check`, `register_design_folders`) | import into `.speky/design/` (`speky design screen add <id> <files> --move`, system → `.speky/design/system.md`); keep the folder only if tooling depends on it: `paths.design_screens` / `paths.design_system` |
+| Session protocol in AGENTS.md | replace it with the SPEKY block (step 3); keep project rules (architecture, product) outside the block |
+Verify the import against the source files before retiring them; only the owner decides to delete them.
+
+## Seed living specs from completed work
+Group completed items into capabilities (user-visible areas). For each, write
+`.speky/capabilities/<capability>/spec.md`: `## Purpose`, `<!-- speky:next-id N -->`, and requirements
+`### <capability>-R<n>: <title>` with WHEN/THEN scenarios describing what the code does **today**
+(read the code). Items `speky migrate` lists as suspect completions: check the code; file real gaps
+(`speky story "..." --type bug --discovered-from <id>`), then `speky migrate --done check_suspect_completions`.
+`speky capabilities --json` must say valid.
+
+## Finish
+`speky decide "Migrated to SPEKY" --type event`; verify `speky status`, `speky next --json`,
+`speky prime`, `speky refs --json`; a fresh agent session picks up the right next step. Commit only
+`.speky/`, the harness files and the instruction files.

@@ -7,7 +7,7 @@ speky is compiled into a **standalone native binary** using [Nuitka](https://nui
 ## How It Works
 
 ```
-speky.py  →  Nuitka  →  C code  →  native binary (speky / speky.exe)
+speky.py + speky_core/ + speky_llm.py  →  Nuitka  →  C code  →  native binary (speky / speky.exe)
 ```
 
 The binary includes the Python runtime and all dependencies baked in. It runs from any directory, operates on the current working directory — exactly like `git` or `npm`.
@@ -22,12 +22,12 @@ There are two modes for running speky locally — pick based on what you need.
 
 ### Mode 1 — Quick Iteration (live source, no build)
 
-Best for active development. Changes to `speky.py` are reflected instantly.
+Best for active development. Changes to `speky_core/` (and `speky_llm.py`) are reflected instantly.
 
 Add the alias to your shell config (one-time):
 
 ```bash
-echo 'alias speky-dev="python3 /Users/Shared/ALL_WORKSPACE/projects/speky/speky.py"' >> ~/.zshrc
+echo 'alias speky-dev="python3 /path/to/speky/speky.py"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
@@ -88,7 +88,7 @@ speky init "My product idea"
 
 | | `speky-dev` (alias) | `speky` (binary) |
 |---|---|---|
-| Code used | Live `speky.py` | Snapshot at compile time |
+| Code used | Live source | Snapshot at compile time |
 | Picks up code changes | Instantly | Only after rebuilding |
 | Matches user experience | No | Yes |
 | When to use | Daily development | Pre-release testing |

@@ -11,7 +11,9 @@ Goal: a short contract someone could build without guessing — and no longer th
    at most 5 in total, each with your recommended answer** and one line on why it matters. Ask only
    what changes what gets built. If the code can answer it, read the code instead of asking.
    Skip questions the user opted out of; state your defaults out loud instead.
-2. Create the item if it doesn't exist: `speky new spec "<title>"` (or `speky new story ...`).
+2. Create the item if it doesn't exist. Work that comes from a task: `speky task promote W<n>
+   [--title "<title>"]` (keeps its phase, labels and references); otherwise `speky new spec "<title>"`
+   (or `speky new story ...`; add `--labels ui` for UI work).
 3. Write the document (`spec.md` / `story.md`):
    - `## Why` — the problem and who has it.
    - `## Capabilities` — what is true when it's done.
@@ -19,6 +21,11 @@ Goal: a short contract someone could build without guessing — and no longer th
    - `## Requirements` — `### R1: <title>` with a SHALL sentence and at least one
      `#### Scenario:` using GIVEN / WHEN / THEN lines. Cover the error or empty state.
    - `## Assumptions` — every informed guess you made instead of asking.
+   - **UI changes** (anything users see): label it (`--labels ui`, or `speky set <id> --labels ui`) and
+     fill `## Design`: the screens it implements (`screen:<id>` from `.speky/design/screens.md`), per
+     state (default, empty, error, loading). Look for an existing design first (`speky design status
+     --json`). None yet → "To be designed" (the design step comes next); nothing visual changes →
+     "No new design needed: <why>".
    - At most 3 `[NEEDS CLARIFICATION: ...]` markers; guess the rest and list them as assumptions.
 4. Requirements describe behaviour, not implementation. No class names, no library choices
    (those go in plan.md). If behaviour of an existing capability changes, write

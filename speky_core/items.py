@@ -153,10 +153,14 @@ class Project:
         match = re.match(r"^([A-Za-z]?)(\d+)$", ref)  # "1" -> "001", "f1" -> "F001"
         if match:
             wanted.add(f"{match.group(1)}{int(match.group(2)):03d}".lower())
-        for item in self.items():
+        items = self.items()
+        for item in items:
             if item.path.name.lower() == ref.lower() or item.id.lower() in wanted:
                 return item
-        return None
+        # a unique part of the folder name ("billing", "user login"); ambiguous names match nothing
+        slug = re.sub(r"[^a-z0-9]+", "-", ref.lower()).strip("-")
+        named = [i for i in items if slug and slug in i.path.name.lower().split("-", 1)[-1]] if not match else []
+        return named[0] if len(named) == 1 else None
 
     def next_id(self, kind: str, story_type: str = "feature") -> str:
         prefix = "" if kind == "spec" else STORY_PREFIXES.get(story_type, "F")

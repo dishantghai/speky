@@ -49,10 +49,12 @@ def record_evidence(project: Project, item: Item, req_id: str, status: str, evid
     if status not in EVIDENCE_STATUSES:
         raise SpekyError("bad_evidence_status", f"Status must be one of {', '.join(EVIDENCE_STATUSES)}.")
     req_ids = [r.id for r in md.parse_requirements(md.strip_comments(item.read_doc()))]
-    req_id = req_id.upper()
-    if req_id not in req_ids:
-        raise SpekyError("unknown_requirement", f"{item.id} has no requirement {req_id}.",
-                         f"Requirements in {item.doc_path.name}: {', '.join(req_ids) or 'none'}.")
+    manual = [f"check:{c['name']}" for c in done_checks_for(project, item) if c.get("manual")]
+    req_id = req_id if req_id.lower().startswith("check:") else req_id.upper()
+    if req_id not in req_ids + manual:
+        raise SpekyError("unknown_requirement", f"{item.id} has no requirement or manual check {req_id}.",
+                         f"Requirements in {item.doc_path.name}: {', '.join(req_ids) or 'none'}"
+                         + (f"; manual checks: {', '.join(manual)}" if manual else "") + ".")
     if status == "met" and not evidence.strip():
         raise SpekyError("evidence_required", "`met` needs evidence: a test id, file:line or command.",
                          'Add --evidence "tests/test_import.py::test_valid_link".')
@@ -102,6 +104,9 @@ def verify(project: Project, item: Item, run: str = None) -> dict:
     for f in blockers:
         missing.append(f"open blocker {f['id']}: {f['text']}")
 
+    checks = run_done_checks(project, item, evidence)
+    missing += [f"done check {c['name']} ({c['label']}): {c['detail']}" for c in checks if not c["passed"]]
+
     passed = not missing
     tree = vcs.tree_fingerprint(project.root)
     verification = {"passed": passed, "checked_at": now(), "tree": tree,
@@ -114,7 +119,7 @@ def verify(project: Project, item: Item, run: str = None) -> dict:
     return {
         "item": item.id, "passed": passed, "missing": missing, "requirements": per_req,
         "changed_files": vcs.changed_files(project.root, base),
-        "base_sha": base, "run": run_result,
+        "base_sha": base, "run": run_result, "done_checks": checks,
         "message": ("Verified: every requirement has evidence"
                     + (" and the verify command passed." if command else ".")) if passed
         else f"Not verified: {len(missing)} item(s) missing.",
@@ -275,3 +280,44 @@ def capabilities_report(project: Project) -> List[dict]:
         report.append({"capability": cap, "requirements": len(reqs), "ids": ids,
                        "problems": problems, "file": str(path.relative_to(project.root))})
     return report
+
+
+# ---------------------------------------------------------------------------- definition of done
+def checks_for_labels(project: Project, labels: List[str]) -> List[dict]:
+    config_checks = project.config.get("done_checks") or {}
+    result = []
+    for label in labels:
+        for check in config_checks.get(label, []) or []:
+            result.append({**check, "label": label})
+    return result
+
+
+def done_checks_for(project: Project, item: Item) -> List[dict]:
+    """Checks configured in speky.yaml `done_checks` for this item's labels (and `all`)."""
+    return checks_for_labels(project, ["all"] + list(item.load_status().get("labels", []) or []))
+
+
+def run_done_checks(project: Project, item: Item, evidence: Dict[str, dict]) -> List[dict]:
+    return run_checks(project, item.id, done_checks_for(project, item), evidence)
+
+
+def run_checks(project: Project, ref_id: str, checks: List[dict], evidence: Dict[str, dict]) -> List[dict]:
+    import glob as globlib
+    results = []
+    for c in checks:
+        name = c.get("name") or c.get("run") or c.get("file") or c.get("manual")
+        if c.get("run"):
+            r = _run(c["run"].replace("{id}", ref_id), project.root)
+            results.append({"name": name, "label": c["label"], "passed": r["exit_code"] == 0,
+                            "detail": f"`{c['run']}` exited {r['exit_code']}"})
+        elif c.get("file"):
+            pattern = c["file"].replace("{id}", ref_id)
+            hits = globlib.glob(str(project.root / pattern))
+            results.append({"name": name, "label": c["label"], "passed": bool(hits),
+                            "detail": f"needs a file matching {pattern}" if not hits else hits[0]})
+        elif c.get("manual"):
+            ev = evidence.get(f"check:{c.get('name')}")
+            ok = bool(ev and ev.get("status") == "met")
+            results.append({"name": name, "label": c["label"], "passed": ok,
+                            "detail": c["manual"] if not ok else ev.get("evidence", "")})
+    return results

@@ -1,5 +1,7 @@
 # Models & Providers
 
+A model is only needed for `speky run`, SPEKY's own agent for working without a coding agent
+(with Claude Code, Codex, Cursor, … the agent you already use does the work and no key is needed).
 SPEKY talks to any LLM provider through `speky_llm.py`. Models are named
 LiteLLM-style as **`provider/model`**:
 
@@ -12,20 +14,19 @@ LiteLLM-style as **`provider/model`**:
 | `opencode-go/glm-5.2` | OpenCode Go subscription (`OPENCODE_API_KEY`) |
 | `claude-code/sonnet` | Your Claude Pro/Max subscription, via the local `claude` CLI |
 | `ollama/qwen3-coder` | Local Ollama, no key |
-| `host` | No model: the agent running SPEKY answers each prompt (see [AUTOMATION.md](AUTOMATION.md#host-mode)) |
 
 Built-in providers: `anthropic`, `openai`, `gemini`, `openrouter`, `nebius`,
 `opencode-go`, `opencode`, `groq`, `together`, `fireworks`, `deepseek`,
-`mistral`, `xai`, `ollama`, `lmstudio`, `claude-code`, `host`.
+`mistral`, `xai`, `ollama`, `lmstudio`, `claude-code`.
 
 ## Choosing a model
 
 ```bash
-speky config --providers                                # which providers have keys set
-speky config --model                                    # show current; interactive picker
-speky config --model openrouter/moonshotai/kimi-k2      # set directly
-speky spec my-feature --llm claude-code/opus            # one-off override
-SPEKY_MODEL=claude-code/opus speky spec my-feature      # same, via env
+speky config providers                                  # which providers are ready
+speky config model                                      # show the current model and fallbacks
+speky config model openrouter/moonshotai/kimi-k2        # set it
+speky run "Add a CSV export" --model claude-code/opus   # one-off override
+SPEKY_MODEL=claude-code/opus speky run "..."            # same, via env
 ```
 
 The choice is saved to `~/.speky/models.yaml` and applies to every project.
@@ -81,12 +82,5 @@ third-party apps. `claude-code/*` therefore runs the official `claude` CLI
   is used, not the API.
 - `max_tokens` and `temperature` can't be set. Calls are slower than the API
   and count against your plan's usage limits.
-- These calls are not traced by TraceAI.
 - Running the CLI yourself for your own work is fine. Don't use this to
   serve other users from your subscription.
-
-## Observability
-
-When `FI_API_KEY` and `FI_SECRET_KEY` are set, TraceAI traces every call made
-through the OpenAI SDK (OpenAI and all OpenAI-compatible providers above), the
-Anthropic SDK and google-genai. See [TRACEAI_SETUP.md](TRACEAI_SETUP.md).

@@ -122,7 +122,84 @@ def test_migrate_done_acknowledges_judgement_tasks(tmp_path, monkeypatch):
     assert cli("migrate", "--done", "nope", expect=1)["error"]["code"] == "unknown_migration_task"
 
 
-def test_help_lists_every_v3_command():
-    import speky
-    from speky_core.cli import COMMANDS
-    assert {name for name, _ in speky.V3_COMMAND_HELP} == COMMANDS
+def test_parser_knows_every_command():
+    from speky_core.cli import COMMANDS, _parser
+    sub = next(a for a in _parser()._actions if a.dest == "cmd")
+    assert set(sub.choices) == COMMANDS
+
+
+def test_migrate_moves_v2_product_tech_validation_and_testing(tmp_path, monkeypatch):
+    sp = make_v2_project(tmp_path)
+    ctx = {"product": {"name": "Spayce", "description": "One app for browsing and notes",
+                       "platforms": ["macOS", "Linux"]},
+           "architecture": {"tech_stack": {"desktop": "Electron 30+", "ui": "React 18+"},
+                            "decisions": ["pnpm workspaces monorepo"]},
+           "decisions": ["Use WebContentsView (not BrowserView)"]}
+    (sp / "context" / "context.json").write_text(json.dumps(ctx))
+    (sp / "specs" / "001-foundation" / "validation_actions.json").write_text(json.dumps([
+        {"item": "**Missing error types**: which package", "intent": "Fixed", "status": "applied"},
+        {"item": "Retry policy undefined", "intent": "Fix", "status": "pending"}]))
+    (sp / "testing").mkdir()
+    (sp / "testing" / "config.yaml").write_text("coverage_threshold: 75\n")
+    monkeypatch.chdir(tmp_path)
+    plan = cli("migrate")
+    steps = {s["step"] for s in plan["pending"]}
+    assert {"import_v2_product", "import_v2_tech", "import_v2_validation", "import_v2_testing"} <= steps
+    cli("migrate", "--apply")
+    product = (sp / "knowledge" / "product.md").read_text()
+    assert "Product: Spayce" in product and "Platforms: macOS, Linux" in product
+    tech = (sp / "knowledge" / "tech.md").read_text()
+    assert "Use WebContentsView" in tech and "Electron 30+" in tech and "always" in tech
+    findings = json.loads((sp / "specs" / "001-foundation" / "findings.json").read_text())
+    assert [f["status"] for f in findings] == ["accepted", "open"]
+    assert "Missing error types" in findings[0]["text"] and "**" not in findings[0]["text"]
+    assert cli("config", "get", "testing.coverage_threshold")["value"] == 75
+    assert cli("migrate")["done"]
+    from speky_core import protocol
+    from speky_core.items import Project
+    text = protocol.prime(Project(tmp_path))
+    assert "Use WebContentsView" in text and "Product: Spayce" in text
+
+
+def test_migrate_lists_unclassified_ui_items_until_they_say_their_design(tmp_path, monkeypatch):
+    from speky_core.items import Project
+    from .conftest import GOOD_SPEC
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".speky" / "context").mkdir(parents=True)
+    (tmp_path / ".speky" / "context" / "design_system.md").write_text("# Design system\n")
+    cli("migrate", "--apply")
+    p = Project(tmp_path)
+    item = p.create("story", "Sidebar paste", body=GOOD_SPEC.replace(
+        "## Requirements", "Right-click in the sidebar menu shows Paste on the tab.\n\n## Requirements"))
+    tasks = {j["task"]: j for j in cli("migrate")["judgement"]}
+    assert tasks["classify_ui_items"]["items"] == [item.id]
+    item.doc_path.write_text(item.read_doc().replace(
+        "## Requirements", "## Design\nNo new design needed: the existing menu gains one entry.\n\n## Requirements"))
+    assert "classify_ui_items" not in {j["task"] for j in cli("migrate")["judgement"]}
+
+
+def test_migrate_moves_v2_design_into_the_standard_layout(tmp_path, monkeypatch):
+    sp = make_v2_project(tmp_path)
+    (sp / "context" / "design_system.md").write_text("# DS\n")
+    d = sp / "design"
+    (d / "hifi" / "source").mkdir(parents=True)
+    (d / "hifi" / "source" / "Login Screen.png").write_bytes(b"png")
+    (d / "hifi" / "source" / "Login Screen.analysis.md").write_text("tokens")
+    (d / "icons" / "source").mkdir(parents=True)
+    (d / "icons" / "source" / "star.svg").write_text("<svg/>")
+    (d / "manifest.json").write_text(json.dumps({"technology": "react", "hifi_images": [
+        {"filename": "Login Screen.png", "related_specs": ["001"],
+         "analysis_path": "design/hifi/source/Login Screen.analysis.md"}], "lofi_images": [], "icons": [],
+        "conflicts": [{"type": "color", "location": "x"}]}))
+    monkeypatch.chdir(tmp_path)
+    steps = {s["step"] for s in cli("migrate")["pending"]}
+    assert {"move_design_system", "convert_v2_design"} <= steps
+    cli("migrate", "--apply")
+    assert (d / "system.md").read_text() == "# DS\n" and not (sp / "context" / "design_system.md").exists()
+    screen = d / "screens" / "login-screen"
+    assert (screen / "Login Screen.png").exists() and (screen / "analysis.md").read_text() == "tokens"
+    assert "001" in (screen / "screen.yaml").read_text() and (d / "icons" / "star.svg").exists()
+    assert not (d / "hifi").exists()
+    manifest = json.loads((d / "manifest.json").read_text())
+    assert manifest["technology"] == "react" and manifest["conflicts"][0]["id"] == "C1"
+    assert cli("migrate")["pending"] == []

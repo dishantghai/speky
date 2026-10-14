@@ -41,5 +41,14 @@ description: Use when `speky next` says archive, or before saying a SPEKY change
    is an error, not a silent skip.
 4. `speky archive <id> --json` — merges deltas into `.speky/capabilities/` and closes the item.
    It refuses if the code changed since verification: verify again.
-5. Report: requirements met, evidence, the verify command result, files changed, capabilities
-   updated. Follow the session-close rule from `speky prime` for commits.
+5. Commit with `speky commit <id>` (message from the item and its evidence; only the change's files;
+   secrets held back) when the project's profile allows, else propose it.
+6. Report: requirements met, evidence, the verify command result, files changed, capabilities
+   updated.
+
+## Reviewing completed work
+`speky review --json` re-checks every completed item: evidence for each requirement, files the
+evidence names, and today's test run. For each item that is not `verified`, read the code against
+its requirements: record evidence that holds (`speky evidence`), or file the gap
+(`speky story "..." --type bug --discovered-from <id>`). Old completions may have been claimed
+without proof; don't trust a status, check the code.

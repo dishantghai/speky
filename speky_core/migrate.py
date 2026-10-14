@@ -69,6 +69,39 @@ def plan(project: Project) -> Dict:
             if not has_ids:
                 no_ids.append(item.id)
 
+    # v2 data that has a new home
+    ctx_path = project.dir / "context" / "context.json"
+    if ctx_path.exists():
+        try:
+            ctx = json.loads(ctx_path.read_text())
+        except json.JSONDecodeError:
+            ctx = {}
+        kdir = project.dir / "knowledge"
+        if ctx.get("product") and not (kdir / "product.md").exists():
+            steps.append({"step": "import_v2_product", "detail": "context.json product → knowledge/product.md"})
+        tech = ctx.get("tech_stack") or (ctx.get("architecture") or {}).get("tech_stack")
+        decisions = list(ctx.get("decisions") or []) + list((ctx.get("architecture") or {}).get("decisions") or [])
+        if (tech or decisions) and not (kdir / "tech.md").exists():
+            steps.append({"step": "import_v2_tech", "detail": "context.json tech stack + key decisions → knowledge/tech.md"})
+    pending_actions = [d for d in project.specs_dir.glob("*/validation_actions.json")] if project.specs_dir.is_dir() else []
+    pending_actions = [p for p in pending_actions if not (p.parent / "findings.json").exists()]
+    if pending_actions:
+        steps.append({"step": "import_v2_validation", "detail": f"{len(pending_actions)} validation_actions.json → findings ledgers",
+                      "items": [p.parent.name for p in pending_actions]})
+    from . import design as design_mod, layout as layout_mod
+    legacy_system = project.dir / "context" / "design_system.md"
+    if legacy_system.exists() and not (project.config.get("paths") or {}).get("design_system") \
+            and not design_mod.system_path(project).exists():
+        steps.append({"step": "move_design_system",
+                      "detail": ".speky/context/design_system.md → .speky/design/system.md (standard layout)"})
+    if design_mod.legacy_assets(project):
+        steps.append({"step": "convert_v2_design", "detail": "v2 design assets ({hifi,lofi,system,icons}/source) → "
+                      ".speky/design/screens/<id>/, system.md, icons/ (links and analyses kept)",
+                      "counts": design_mod.legacy_assets(project)})
+    if (project.dir / "testing" / "config.yaml").exists() and not (project.config.get("testing")
+                                                                     if (project.dir / config.CONFIG_NAME).exists() else None):
+        steps.append({"step": "import_v2_testing", "detail": "testing/config.yaml → speky.yaml testing (+ detected commands)"})
+
     for dep_issue in _dependency_issues(project):
         issues.append(dep_issue)
     for cycle in graph.cycles(project):
@@ -87,6 +120,23 @@ def plan(project: Project) -> Dict:
     if no_ids:
         judgement.append({"task": "add_requirement_ids", "items": no_ids,
                           "detail": "Open items without `### R1:` requirements; run `speky check <id>`."})
+    from . import uxdesign
+    ui_unclear = [i.id for i in project.items() if i.info()["status"] not in DONE_STATUSES
+                  and uxdesign.looks_user_facing(project, i)]
+    design_folders = uxdesign.find_design_folders(project)
+    if design_folders:
+        judgement.append({"task": "register_design_folders", "items": design_folders,
+                          "detail": "Folders outside the standard layout that look like screen designs. Import "
+                                    "them (`speky design screen add <id> <files> --move`, one ID per screen) so "
+                                    "every project keeps designs in .speky/design/screens/; only when tooling "
+                                    "depends on the folder, keep it and `speky config set paths.design_screens "
+                                    "<folder>`. Then cite screens in UI items."})
+    if ui_unclear:
+        judgement.append({"task": "classify_ui_items", "items": ui_unclear,
+                          "detail": "Open items that read as user-facing but don't say which design they "
+                                    "implement. For each: label it ui and cite its design in `## Design` "
+                                    "(screen IDs or files), or add `## Design` with \"No new design needed: "
+                                    "<why>\" (speky-migrate skill). Clears itself when all are classified."})
     done_tasks = set(project.config.get("migration_done", []) or []) \
         if (project.dir / config.CONFIG_NAME).exists() else set()
     judgement = [j for j in judgement if j["task"] not in done_tasks]
@@ -121,6 +171,58 @@ def apply(project: Project) -> Dict:
                 "# Living specs\n\nOne folder per capability: `<capability>/spec.md` describes how the "
                 "system behaves **now**. Changes update them through `deltas/` when archived "
                 "(`speky archive`). Format: https://github.com/dishantghai/speky/blob/main/docs/v3/CONTRACTS.md#4-living-specs-and-deltas\n")
+        elif step["step"] == "import_v2_product":
+            from . import knowledge
+            ctx = json.loads((project.dir / "context" / "context.json").read_text())
+            prod = ctx.get("product") or {}
+            labels = [("name", "Product"), ("description", "What it is"), ("target_users", "For"),
+                      ("problem", "Problem"), ("domain", "Domain"), ("scale", "Scale"), ("platforms", "Platforms"),
+                      ("platform", "Platform"), ("mvp_scope", "First version"), ("constraints", "Constraints")]
+            for key, label in reversed(labels):  # newest first in the file, so write in reverse
+                value = prod.get(key)
+                if value:
+                    value = ", ".join(value) if isinstance(value, list) else value
+                    knowledge.remember(project, f"{label}: {value} (from v2 product profile)", "product", always=True)
+        elif step["step"] == "import_v2_tech":
+            from . import knowledge
+            ctx = json.loads((project.dir / "context" / "context.json").read_text())
+            tech = ctx.get("tech_stack") or (ctx.get("architecture") or {}).get("tech_stack") or {}
+            decisions = list(dict.fromkeys(list(ctx.get("decisions") or []) +
+                                           list((ctx.get("architecture") or {}).get("decisions") or [])))
+            for d in reversed(decisions):
+                knowledge.remember(project, f"Decision: {d}", "tech", always=True)
+            if tech:
+                knowledge.remember(project, "Stack: " + "; ".join(f"{k.replace('_', ' ')} {v}" for k, v in tech.items()),
+                                   "tech", always=True)
+            if (project.dir / "context" / "tech_decisions.md").exists():
+                knowledge.remember(project, "Full tech decisions (authoritative): .speky/context/tech_decisions.md",
+                                   "tech", always=True)
+        elif step["step"] == "import_v2_validation":
+            from .items import Item
+            from .validation import Ledger
+            for name in step["items"]:
+                item = Item(project.specs_dir / name, "spec")
+                actions = json.loads((item.path / "validation_actions.json").read_text())
+                ledger = Ledger(item)
+                for a in actions:
+                    text = re.sub(r"\*\*", "", str(a.get("item", ""))).strip()[:400]
+                    if not text:
+                        continue
+                    f = ledger.add(text, "major", source="v2-validate")
+                    state = str(a.get("status", "pending")).lower()
+                    if state not in ("pending", "open") and not f.get("duplicate"):
+                        ledger.resolve(f["id"], "accepted", f"handled in v2 validation ({a.get('intent', state)})")
+        elif step["step"] == "move_design_system":
+            from . import design as design_mod
+            target = design_mod.system_path(project)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            (project.dir / "context" / "design_system.md").rename(target)
+        elif step["step"] == "convert_v2_design":
+            from . import design as design_mod
+            design_mod.convert_legacy(project)
+        elif step["step"] == "import_v2_testing":
+            from . import testing
+            testing.init(project)
         elif step["step"] == "normalise_status":
             item = project.find(step["item"])
             raw = item.load_status() if item.status_path.exists() else {"created": now()}
@@ -135,7 +237,8 @@ def apply(project: Project) -> Dict:
             "judgement": after["judgement"], "done": after["done"]}
 
 
-JUDGEMENT_TASKS = ("seed_living_specs", "check_suspect_completions", "add_requirement_ids", "setup_harness")
+JUDGEMENT_TASKS = ("seed_living_specs", "check_suspect_completions", "add_requirement_ids", "setup_harness",
+                   "register_design_folders")
 
 
 def mark_done(project: Project, task: str) -> Dict:

@@ -23,4 +23,14 @@ Write `<item folder>/plan.md` for an engineer who knows the language but not thi
    choose: `speky gate add <id> --type human --reason "..."`.
 6. Set the project's verify command once if missing: edit `verify_command` in `.speky/speky.yaml`.
 
+7. **Dependencies:** for each item this one needs first, `speky deps add <id> <needed-id>`
+   (`speky order` shows the resulting order; `speky deps cycles` must be empty).
+
+## Roadmap mode (several items, or "plan the project")
+Group work into phases that each deliver something usable: `speky phases add "<name>"`, each with
+deliverables that prove it (`speky phases deliverable <phase> "<what>" --run "<cmd>"` when a command can
+prove it), items attached with `--phase` on `speky spec|story`, small work as `speky task add --phase`.
+Infer dependencies between items from what each needs, record them with `speky deps add`, and check
+`speky order --export`. The first item in a phase is the thinnest path through every layer.
+
 Done when plan.md exists and covers every requirement. Then `speky next` (it will say start).
