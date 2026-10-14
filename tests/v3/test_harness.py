@@ -132,3 +132,24 @@ def test_v2_testing_merge_does_not_duplicate_end_markers(tmp_path):
         integration._merge_context_to_file(rules, "# 🧪 SPEKY Testing Context (v1)\n\nctx")
     assert rules.read_text().count("# END SPEKY Testing Context") == 1
     assert rules.read_text().count("SPEKY Testing Context (v1)") == 1
+
+
+def test_skills_only_mention_commands_that_exist():
+    import re
+    from speky_core.cli import COMMANDS
+    extra = {"run"}  # the built-in runner (milestone 3 step 4)
+    bad = {}
+    for name in harness.skill_names():
+        text = (harness.SKILLS_DIR / name / "SKILL.md").read_text()
+        for m in re.finditer(r"`speky ([a-z][a-z-]*)", text):
+            if m.group(1) not in COMMANDS | extra:
+                bad.setdefault(name, set()).add(m.group(1))
+    assert not bad, bad
+
+
+def test_instruction_blocks_only_mention_commands_that_exist():
+    import re
+    from speky_core.cli import COMMANDS
+    for block in (harness.MINIMAL_BLOCK, harness.FULL_BLOCK):
+        used = set(re.findall(r"`speky ([a-z][a-z-]*)", block))
+        assert used <= COMMANDS, used - COMMANDS

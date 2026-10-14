@@ -29,8 +29,7 @@ MINIMAL_BLOCK = """## SPEKY
 This project uses SPEKY for spec-driven development (`.speky/`). The full workflow is injected at
 session start by `speky prime`; if it is missing, run `speky prime`.
 
-- Ask `speky next --json` what to do; follow the skill it names (`speky`, `speky-propose`,
-  `speky-validate`, `speky-plan`, `speky-implement`, `speky-verify`).
+- Ask `speky next --json` what to do and follow the skill it names (`speky` is the hub).
 - No completion claims without fresh evidence (`speky verify <id>`).
 """
 
@@ -40,9 +39,12 @@ This project uses SPEKY for spec-driven development. Changes live in `.speky/spe
 `.speky/stories/`; current behaviour lives in `.speky/capabilities/`. SPEKY holds state and rules;
 you do the work through the `speky` CLI (every `--json` command prints one JSON document).
 
-- Start with `speky prime` (workflow + current state), then `speky next --json`, and follow the
-  action and skill it names. Skills: `speky`, `speky-propose`, `speky-validate`, `speky-plan`,
-  `speky-implement`, `speky-verify` (in the skills folder for this tool).
+- Start with `speky prime` (where to pick up + workflow), then `speky next --json`, and follow the
+  action and skill it names. Skills (in this tool's skills folder): `speky` (hub), `speky-init`,
+  `speky-propose`, `speky-validate`, `speky-plan`, `speky-implement`, `speky-test`, `speky-verify`,
+  `speky-import`, `speky-design`, `speky-migrate`.
+- Write learnings down when you learn them (`speky remember --topic`); hand off at the end of a session
+  or milestone (`speky handoff --file <notes.md>`).
 - Size work first: a quick, clear fix needs no item; anything that changes behaviour gets
   `speky new spec|story "<title>"`.
 - Requirements are `### R1: ...` with WHEN/THEN scenarios. Record evidence per requirement
