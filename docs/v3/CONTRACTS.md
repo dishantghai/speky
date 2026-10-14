@@ -213,6 +213,7 @@ testing:                      # `speky test init` detects these
 paths:
   adr_dir: docs/adr           # where ADRs live (default .speky/adr)
   design_system: docs/ux/DESIGN.md   # the design-system document (default .speky/context/design_system.md)
+  design_screens: [docs/ux/screens]  # folders of screen designs, kept where they are (listed by `speky design status`)
 playbooks:                    # how this project does a kind of work, by label (items and tasks: --labels)
   ui:
     skill: screen-design-narratives

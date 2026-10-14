@@ -110,6 +110,21 @@ def plan(project: Project) -> Dict:
     if no_ids:
         judgement.append({"task": "add_requirement_ids", "items": no_ids,
                           "detail": "Open items without `### R1:` requirements; run `speky check <id>`."})
+    from . import uxdesign
+    ui_unclear = [i.id for i in project.items() if i.info()["status"] not in DONE_STATUSES
+                  and uxdesign.looks_user_facing(project, i)]
+    design_folders = uxdesign.find_design_folders(project)
+    if design_folders:
+        judgement.append({"task": "register_design_folders", "items": design_folders,
+                          "detail": "Folders that look like screen designs. If they are, "
+                                    "`speky config set paths.design_screens <folder>` (a list for several) so "
+                                    "agents find existing designs before making new ones; cite them in UI items."})
+    if ui_unclear:
+        judgement.append({"task": "classify_ui_items", "items": ui_unclear,
+                          "detail": "Open items that read as user-facing but don't say which design they "
+                                    "implement. For each: label it ui and cite its design in `## Design` "
+                                    "(screen IDs or files), or add `## Design` with \"No new design needed: "
+                                    "<why>\" (speky-migrate skill). Clears itself when all are classified."})
     done_tasks = set(project.config.get("migration_done", []) or []) \
         if (project.dir / config.CONFIG_NAME).exists() else set()
     judgement = [j for j in judgement if j["task"] not in done_tasks]
@@ -202,7 +217,8 @@ def apply(project: Project) -> Dict:
             "judgement": after["judgement"], "done": after["done"]}
 
 
-JUDGEMENT_TASKS = ("seed_living_specs", "check_suspect_completions", "add_requirement_ids", "setup_harness")
+JUDGEMENT_TASKS = ("seed_living_specs", "check_suspect_completions", "add_requirement_ids", "setup_harness",
+                   "register_design_folders")
 
 
 def mark_done(project: Project, task: str) -> Dict:

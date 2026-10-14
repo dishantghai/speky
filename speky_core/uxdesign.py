@@ -19,7 +19,45 @@ from . import markdown as md
 from .items import Item, Project
 
 DEFAULT_UI_LABELS = ("ui", "ux", "frontend")
-DESIGN_FILE_RE = re.compile(r"`([^`\s]+\.(?:png|jpe?g|webp|svg|html?|fig|pdf|md))`|\]\(([^)\s]+)\)", re.I)
+DESIGN_FILE_RE = re.compile(r"`([^`\n]+\.(?:png|jpe?g|webp|svg|html?|fig|pdf|md))`|\]\(([^)\s]+)\)", re.I)
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".svg", ".html", ".htm", ".pdf", ".fig"}
+SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "dist", "build", "out", ".next", "coverage", ".speky",
+             "__pycache__", "target", "Pods", ".dart_tool"}
+
+
+def screen_dirs(project: Project) -> List[str]:
+    """Folders holding screen designs (`paths.design_screens`: one path or a list)."""
+    value = (project.config.get("paths") or {}).get("design_screens") or []
+    return [value] if isinstance(value, str) else list(value)
+
+
+def screens(project: Project, limit: int = 300) -> List[str]:
+    out = []
+    for d in screen_dirs(project):
+        base = project.root / d
+        for f in sorted(base.rglob("*")) if base.is_dir() else []:
+            if f.is_file() and f.suffix.lower() in IMAGE_EXT:
+                out.append(str(f.relative_to(project.root)))
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def find_design_folders(project: Project) -> List[str]:
+    """Unregistered folders that look like design screens: a design/screen/mock/ux-ish name with 3+ images."""
+    known = set(screen_dirs(project))
+    found = []
+    name_re = re.compile(r"design|screen|mock|wirefram|ux|ui[-_ ]|hifi|lofi|figma|stitch", re.I)
+    for d in project.root.rglob("*"):
+        if not d.is_dir() or any(p in SKIP_DIRS or p.startswith(".") for p in d.relative_to(project.root).parts):
+            continue
+        rel = str(d.relative_to(project.root))
+        if not name_re.search(d.name) or any(rel == k or rel.startswith(k + "/") for k in known):
+            continue
+        images = [f for f in d.iterdir() if f.is_file() and f.suffix.lower() in IMAGE_EXT - {".pdf"}]
+        if len(images) >= 3 and not any(rel.startswith(f + "/") for f in found):
+            found.append(rel)
+    return found[:10]
 NOT_NEEDED_RE = re.compile(r"\bno (?:new )?(?:design|screens?|ui change)s? (?:is |are )?needed\b|\bnot needed\b"
                            r"|\bno ui change\b", re.I)
 TO_DESIGN_RE = re.compile(r"\bto be designed\b|\bnot designed yet\b|\bTBD\b", re.I)

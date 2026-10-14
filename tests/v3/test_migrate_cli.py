@@ -159,3 +159,20 @@ def test_migrate_moves_v2_product_tech_validation_and_testing(tmp_path, monkeypa
     from speky_core.items import Project
     text = protocol.prime(Project(tmp_path))
     assert "Use WebContentsView" in text and "Product: Spayce" in text
+
+
+def test_migrate_lists_unclassified_ui_items_until_they_say_their_design(tmp_path, monkeypatch):
+    from speky_core.items import Project
+    from .conftest import GOOD_SPEC
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".speky" / "context").mkdir(parents=True)
+    (tmp_path / ".speky" / "context" / "design_system.md").write_text("# Design system\n")
+    cli("migrate", "--apply")
+    p = Project(tmp_path)
+    item = p.create("story", "Sidebar paste", body=GOOD_SPEC.replace(
+        "## Requirements", "Right-click in the sidebar menu shows Paste on the tab.\n\n## Requirements"))
+    tasks = {j["task"]: j for j in cli("migrate")["judgement"]}
+    assert tasks["classify_ui_items"]["items"] == [item.id]
+    item.doc_path.write_text(item.read_doc().replace(
+        "## Requirements", "## Design\nNo new design needed: the existing menu gains one entry.\n\n## Requirements"))
+    assert "classify_ui_items" not in {j["task"] for j in cli("migrate")["judgement"]}

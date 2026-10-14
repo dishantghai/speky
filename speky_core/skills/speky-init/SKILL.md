@@ -25,7 +25,8 @@ stack, test command). Your job is the judgement around it.
    then the speky-propose skill), small things as tasks (`speky task add "..."`). Link dependencies
    with `speky deps add`.
 7. **UI projects:** find or create the design-system document (tokens, type, spacing, components) and
-   set `speky config set paths.design_system <file>`; if screens live in a catalogue with IDs, add a
+   set `speky config set paths.design_system <file>`; folders of screen designs go in
+   `paths.design_screens` (`speky design status` shows unregistered ones); if screens live in a catalogue with IDs, add a
    `refs` kind for them (`refs.screen`); if the project has its own design workflow or tool (Stitch,
    Figma, a design skill), name it as the `ui` playbook (`playbooks.ui: {skill, read, note}`) and,
    if that skill lives outside the repo, list it in `extra_skills`.

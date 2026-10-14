@@ -159,7 +159,9 @@ def status(project: Project) -> dict:
                              "cited": st["cited"], "broken": st["broken"]})
     playbook = (project.config.get("playbooks") or {})
     return {"design_system": uxdesign.design_system(project), "technology": data.get("technology"),
-            "catalogues": catalogues, "playbooks": {k: v.get("skill") for k, v in playbook.items()
+            "catalogues": catalogues, "screen_dirs": uxdesign.screen_dirs(project),
+            "screens": uxdesign.screens(project),
+            "unregistered_design_folders": uxdesign.find_design_folders(project), "playbooks": {k: v.get("skill") for k, v in playbook.items()
                                                     if isinstance(v, dict)},
             "images": len(imgs), "analyzed": len([i for i in imgs if i.get("analysis_path")]),
             "unlinked": [i["filename"] for i in imgs if not i.get("related_specs")],

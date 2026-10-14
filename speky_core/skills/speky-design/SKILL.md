@@ -14,8 +14,9 @@ follow-ups become tasks. Use the steps below when the project has no workflow of
 
 ## Design for one change (`speky next` says design)
 
-1. **Find before you make.** `speky design status --json` (design system, catalogues, linked assets,
-   UI items still needing a design); search the screen catalogue and design folders for this
+1. **Find before you make.** `speky design status --json` (design system, screens in
+   `paths.design_screens`, catalogues, linked assets, UI items still needing a design, design folders
+   not registered yet — register them with `speky config set paths.design_screens <folder>`); search the screen catalogue and design folders for this
    feature. Found → cite it in the item's `## Design` (`screen:<id>` or the file path, per state).
 2. **None exists → create it** with the tool the project uses (its `ui` playbook) or what is
    available (Stitch, Figma, an HTML/CSS mock in the repo). Start from the design system and existing

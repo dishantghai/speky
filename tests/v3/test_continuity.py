@@ -483,3 +483,21 @@ def test_promote_carries_labels_and_refs_and_unlabelled_ui_text_is_flagged(proje
     rubric = {r["rubric"]: r for r in validation.run_rubric(project, plain, project.config)}
     assert not rubric["ui_label"]["passed"] and "panel" in rubric["ui_label"]["evidence"]
     assert "label it" in protocol.action_for(project, spec(project, "Empty", body=None))["instruction"]
+
+
+def test_design_screen_folders_found_registered_and_citable_with_spaces(project):
+    from speky_core import config, uxdesign
+    folder = project.root / "project_ops" / "HIFI_UI_DESIGN_SCREENS"
+    folder.mkdir(parents=True)
+    for n in ("Browser Tab Bar", "Settings Screen", "Space Card Design"):
+        (folder / f"{n}.png").write_bytes(b"png")
+    assert uxdesign.find_design_folders(project) == ["project_ops/HIFI_UI_DESIGN_SCREENS"]
+    cfg = project.config
+    cfg["paths"] = {"design_screens": "project_ops/HIFI_UI_DESIGN_SCREENS"}
+    config.save(project.root, cfg)
+    status = cli("design", "status")
+    assert "project_ops/HIFI_UI_DESIGN_SCREENS/Browser Tab Bar.png" in status["screens"]
+    assert status["unregistered_design_folders"] == []
+    item = spec(project, body=GOOD_SPEC.replace("## Requirements",
+        "## Design\n- Tab bar: `project_ops/HIFI_UI_DESIGN_SCREENS/Browser Tab Bar.png`\n\n## Requirements"))
+    assert uxdesign.state(project, item)["cited"] == ["project_ops/HIFI_UI_DESIGN_SCREENS/Browser Tab Bar.png"]

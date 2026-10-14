@@ -32,6 +32,7 @@ Map each kind of note to its SPEKY home with the generic commands — keep the w
 | Definition of done rules (e.g. UI needs a review file) | `speky config set done_checks.<label> ...` (file / run / manual checks), label items with `--labels` |
 | A workflow for a kind of work (e.g. UI: narratives → design tool → UX review) | `playbooks.<label>` in speky.yaml (`skill`, `read`, `note`); label the items/tasks (`--labels ui`, `speky set W<n> --labels ui`) |
 | Skills the project relies on (in a user folder such as `~/.claude/skills/`) | `extra_skills: [<path>]` in speky.yaml; `speky setup <harness>` installs them for every tool |
+| Open items that touch the UI (`classify_ui_items`) | per item: `speky set <id> --labels ui` and cite its design in `## Design`, or `## Design` with "No new design needed: <why>" |
 | Design system / screen catalogue outside `.speky/` | `speky config set paths.design_system <file>`; screens cited as `screen:<id>` via `refs` |
 | Session protocol in AGENTS.md | replace it with the SPEKY block (step 3); keep project rules (architecture, product) outside the block |
 Verify the import against the source files before retiring them; only the owner decides to delete them.
