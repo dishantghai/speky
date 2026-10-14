@@ -256,6 +256,11 @@ def make_completer(project: Project, model: str = None) -> Callable[[str, str], 
     if model:
         os.environ["SPEKY_MODEL"] = model
     router = LLMRouter(project_root=project.root, log=lambda m: print(m, file=sys.stderr))
+    if router.model_ref in ("host", "host/agent"):
+        raise SpekyError("no_model", "The configured model is `host` (v2 host mode), which was removed: an "
+                         "agent now drives SPEKY directly through its skills.",
+                         "Use your coding agent with `speky setup <harness>`, or set a real model for "
+                         "`speky run`: `speky config model claude-code/sonnet`.")
     if not router.chain:
         raise SpekyError("no_model", "No model is configured for `speky run`.",
                          "Set one: `speky config model <provider/model>` (e.g. claude-code/sonnet uses your "

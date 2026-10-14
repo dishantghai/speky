@@ -51,19 +51,25 @@ Work items
   epic add|show|attach|detach|list            stories that share context
   phases list|add|start|deliverable|verify|check|complete   phases with deliverables as their gate
   deps add|remove|clear|foundation|cycles  ·  order [--export]        dependencies and order
+  set <id> --status|--priority  ·  link <id> --type …  ·  gate add|…  ·  backlog (deferred items)
 
 Building
   check <id>  ·  finding add|list|resolve     validation that converges
   plan | context <id>                         planning / context packet (pointers for the agent)
   implement <id> (= start)  ·  evidence <id> <R#>  ·  verify <id>  ·  complete <id>  ·  archive <id>
-  commit <id>  ·  review [<id>]  ·  test init|run|coverage|gaps|link|red|green  ·  design …
+  commit <id>  ·  review [<id>]  ·  cleanup  ·  test init|run|coverage|gaps|link|red|green  ·  design …
 
 Memory and session
-  handoff  ·  checkpoint  ·  prime  ·  status  ·  remember --topic  ·  knowledge  ·  decide  ·  adr
-  owner add|done|list  ·  term  ·  refs  ·  capabilities  ·  import add|link|status|reconcile
+  handoff  ·  checkpoint  ·  prime  ·  status | state | ready  ·  remember --topic  ·  knowledge
+  decide  ·  adr  ·  owner add|done|list  ·  term  ·  refs  ·  capabilities  ·  import add|link|status|reconcile
 
 Setup
-  setup <claude-code|codex|agents-md>  ·  config get|set  ·  migrate [--apply|--done TASK]
+  setup <claude-code|codex|cursor|windsurf|vscode|antigravity|agents-md>  ·  config get|set|model|providers
+  migrate [--apply|--done TASK]
+
+v2 names that still work: adopt, validate-spec, validate-story (= check), sequence (= order),
+  mark-foundation, reset-deps, fix-circular-deps, infer-deps (= deps …), decisions, epics, import-status,
+  reconcile, poc-import (= import …). Removed: renumber, host, sync (each says what replaces it).
 
 Every command takes --json (one JSON document; errors carry a fix). Nothing ever prompts.
 Reference: https://github.com/dishantghai/speky/blob/main/docs/v3/CONTRACTS.md"""
@@ -489,6 +495,7 @@ def _parser() -> argparse.ArgumentParser:
                       ("host", "the agent drives SPEKY directly; see `speky next`"),
                       ("sync", "knowledge topics replace codebase.md; see `speky remember --topic`")):
         add(gone, help=f"removed: {use}")
+    p.format_help = lambda: f"usage: speky <command> [options] [--json]\n\n{HELP}\n"
     return p
 
 
@@ -756,11 +763,12 @@ def run(argv: List[str]) -> dict:
         if not args.harness:
             raise SpekyError("harness_required", "Name a harness.",
                              f"One of: {', '.join(harness.RECIPES)} (or --list).")
+        name = harness.ALIASES.get(args.harness, args.harness)
         if args.check:
-            return harness.check(project, args.harness)
+            return harness.check(project, name)
         if args.remove:
-            return harness.remove(project, args.harness)
-        return harness.setup(project, args.harness)
+            return harness.remove(project, name)
+        return harness.setup(project, name)
     if cmd == "migrate":
         if not project.dir.is_dir():
             raise SpekyError("not_initialized", f"No .speky/ folder in {project.root}.",

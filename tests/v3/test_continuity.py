@@ -13,19 +13,18 @@ from .conftest import GOOD_SPEC, cli, git, spec
 
 
 # ---------------------------------------------------------------- phases (v2 manifests)
-def test_phases_use_v2_manifests_and_v2_can_read_them(project):
-    import speky
-    p = phases.add(project, "Workbench", "phase-1a")
+def test_phases_use_the_v2_manifest_format(project):
+    """Older SPEKY versions read phases/<id>/manifest.yaml and phases/roadmap.yaml; keep that shape."""
+    import yaml
+    phases.add(project, "Workbench", "phase-1a")
     phases.add_deliverable(project, "phase-1a", "Walkthrough test passes", run="true")
     phases.add_deliverable(project, "phase-1a", "Owner reaches the fix in 15 minutes")
     phases.set_status(project, "phase-1a", "doing")
-    manifest = project.dir / "phases" / "phase-1a" / "manifest.yaml"
-    assert manifest.exists()
-    v2 = speky.SPEKY(project_root=project.root)
-    data = v2._load_phase("phase-1a")
+    data = yaml.safe_load((project.dir / "phases" / "phase-1a" / "manifest.yaml").read_text())
     assert data["name"] == "Workbench" and data["status"] == "in_progress"
     assert [d["id"] for d in data["deliverables"]] == ["D1", "D2"]
-    assert v2._load_roadmap()["current_phase"] == "phase-1a"
+    roadmap = yaml.safe_load((project.dir / "phases" / "roadmap.yaml").read_text())
+    assert roadmap["current_phase"] == "phase-1a"
 
 
 def test_phase_gate_runs_commands_and_needs_evidence_for_manual(project):
@@ -53,7 +52,6 @@ def test_phase_complete_refuses_open_tasks(project):
 
 # ---------------------------------------------------------------- tasks (backlog store)
 def test_tasks_live_in_backlog_and_v2_backlog_ignores_them(project):
-    import speky
     (project.dir / "backlog.json").write_text(json.dumps(
         [{"name": "deferred thing", "status": "pending", "type": "CODE_BEHIND"}]))
     phases.add(project, "P", "p1")
@@ -63,7 +61,9 @@ def test_tasks_live_in_backlog_and_v2_backlog_ignores_them(project):
     assert t["phase"] == "p1" and sub["phase"] == "p1"
     items = json.loads((project.dir / "backlog.json").read_text())
     assert len(items) == 3 and items[0]["status"] == "pending"
-    assert speky.SPEKY(project_root=project.root)._get_backlog_count()["total"] == 1
+    # older SPEKY versions review only `status: pending` entries; tasks never use that status
+    assert [i["name"] for i in items if i.get("status") == "pending"] == ["deferred thing"]
+    assert [d["name"] for d in cli("backlog")["deferred"]] == ["deferred thing"]
     view = (project.dir / "tasks.md").read_text()
     assert "- [ ] W1 Wire SSE (refs: adr:0021)" in view and "  - [ ] W2 Add retry" in view
 

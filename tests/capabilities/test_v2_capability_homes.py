@@ -1,11 +1,18 @@
 """Guard: no v2 capability is lost.
 
-Every v2 command (`cmd_*` on the v2 SPEKY class, plus `test`) has a row here naming its home in the new
-SPEKY (docs/v3/PLAN.md §11). A row marked "built" must point at v3 commands that exist. A v2 command may
-only be deleted from speky.py once its row is "built" (or "dropped" with the owner's agreement).
+Every v2 command has a row here naming its home in SPEKY today (docs/v3/PLAN.md §11). A "built" row
+must point at commands that exist; "dropped" rows were agreed with the owner. The v2 implementation
+was deleted once every row was built or dropped; V2_COMMANDS is the frozen list of what it had.
 """
-import speky
 from speky_core.cli import COMMANDS
+
+# every `speky <command>` of SPEKY v2 (0.5.x): its cmd_* methods plus `test`
+V2_COMMANDS = {
+    "init", "spec", "story", "adopt", "validate_spec", "validate_story", "plan", "implement", "complete",
+    "commit", "status", "sync", "review", "cleanup", "backlog", "import", "import_status", "reconcile",
+    "poc_import", "sequence", "infer_deps", "mark_foundation", "reset_deps", "fix_circular_deps",
+    "renumber", "decisions", "config", "design", "phases", "context", "epic", "epics", "host", "test",
+}
 
 # v2 command -> (status, v3 commands that replace it)
 HOMES = {
@@ -46,13 +53,8 @@ HOMES = {
 }
 
 
-def v2_commands():
-    names = {m[4:] for m in dir(speky.SPEKY) if m.startswith("cmd_")}
-    return names | {"test"}
-
-
 def test_every_v2_command_has_a_home():
-    missing = sorted(v2_commands() - set(HOMES))
+    missing = sorted(V2_COMMANDS - set(HOMES))
     assert not missing, f"v2 commands with no planned home: {missing}"
 
 
@@ -61,10 +63,9 @@ def test_built_rows_point_at_existing_commands():
     assert not {k: v for k, v in broken.items() if v}
 
 
-def test_v2_commands_are_only_removed_once_their_home_is_built():
-    removed = set(HOMES) - v2_commands()
-    not_ready = sorted(k for k in removed if HOMES[k][0] == "pending")
-    assert not not_ready, f"v2 commands removed before their new home was built: {not_ready}"
+def test_no_v2_capability_is_pending():
+    pending = sorted(k for k, (status, _) in HOMES.items() if status not in ("built", "dropped"))
+    assert not pending, f"v2 commands without a home: {pending}"
 
 
 def test_progress_report():
@@ -72,3 +73,10 @@ def test_progress_report():
     built = [k for k, (s, _) in HOMES.items() if s == "built"]
     print(f"\nv2 → new SPEKY: {len(built)}/{len(HOMES)} built, "
           f"{len([1 for s, _ in HOMES.values() if s == 'dropped'])} dropped by agreement")
+
+
+def test_help_lists_every_command():
+    import re
+    from speky_core.cli import HELP
+    unlisted = sorted(c for c in COMMANDS if not re.search(r"(?<![\w-])" + re.escape(c) + r"(?![\w-])", HELP))
+    assert not unlisted, f"commands missing from `speky --help`: {unlisted}"

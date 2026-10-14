@@ -56,7 +56,6 @@ python3 -m nuitka \
   --output-dir="$DIST_DIR" \
   --output-filename="$OUTPUT_NAME" \
   --include-package=anthropic \
-  --include-package=dotenv \
   --include-package=requests \
   --include-package=openai \
   --include-package=yaml \
@@ -64,7 +63,6 @@ python3 -m nuitka \
   --include-module=speky_llm \
   --include-package=speky_core \
   --include-package-data=speky_core \
-  --include-module=traceai_config \
   --follow-imports \
   --assume-yes-for-downloads \
   --remove-output \

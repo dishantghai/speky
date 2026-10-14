@@ -8,7 +8,6 @@ Models are addressed LiteLLM-style as "provider/model":
     nebius/deepseek-ai/DeepSeek-V3-0324
     opencode-go/glm-5.2
     claude-code/sonnet        (your Claude Pro/Max subscription, via the `claude` CLI)
-    host                      (no model: the agent running SPEKY answers — see host mode below)
 
 The active model, fallbacks and any extra providers are configured in
 ~/.speky/models.yaml, with per-project overrides in .speky/models.yaml.
@@ -33,7 +32,6 @@ PROJECT_CONFIG_NAME = "models.yaml"
 #   gemini      — Google Gemini via the google-genai SDK (optional; the built-in
 #                 `gemini` provider uses Gemini's OpenAI-compatible endpoint instead)
 #   claude-code — the local `claude` CLI, authenticated with your Claude subscription
-#   host        — no LLM call: the prompt is handed to the agent that runs SPEKY (host mode)
 BUILTIN_PROVIDERS: Dict[str, dict] = {
     "anthropic":   {"type": "anthropic", "api_key_env": "ANTHROPIC_API_KEY",
                     "default_model": "claude-sonnet-4-20250514"},
@@ -70,8 +68,6 @@ BUILTIN_PROVIDERS: Dict[str, dict] = {
     "lmstudio":    {"type": "openai", "base_url": "http://localhost:1234/v1", "api_key": "lmstudio"},
     "claude-code": {"type": "claude-code", "default_model": "sonnet",
                     "models": ["sonnet", "opus", "haiku"]},
-    "host":        {"type": "host", "default_model": "agent", "models": ["agent"],
-                    "timeout": 1800},
 }
 
 # Order used to auto-pick a provider when no model is configured anywhere
@@ -105,6 +101,32 @@ def _infer_provider(model: str) -> Optional[str]:
     return None
 
 
+def load_dotenv(root: Path) -> None:
+    """API keys from the project's `.env` (KEY=value lines); the environment wins."""
+    env_file = Path(root) / ".env"
+    if not env_file.is_file():
+        return
+    for line in env_file.read_text(errors="ignore").splitlines():
+        line = line.strip()
+        if line.startswith("export "):
+            line = line[7:].strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+V2_DEFAULT_MODEL = "claude-sonnet-4-20250514"
+
+
+def _legacy_project_model(root: Path) -> Optional[str]:
+    import re
+    path = Path(root) / ".speky" / "config.yaml"
+    if not path.is_file():
+        return None
+    m = re.search(r"^model:\s*[\"']?([^\s\"'#]+)", path.read_text(errors="ignore"), re.MULTILINE)
+    return m.group(1) if m else None
+
+
 class LLMRouter:
     """Routes completions to the configured provider/model, with retries and fallbacks."""
 
@@ -112,9 +134,13 @@ class LLMRouter:
                  legacy_default: str = None, timeout: int = 120,
                  log: Callable[[str], None] = print):
         self.project_root = Path(project_root) if project_root else Path.cwd()
+        if legacy_model is None:  # `model:` in a v2 project's .speky/config.yaml
+            legacy_model = _legacy_project_model(self.project_root)
+            legacy_default = legacy_default or V2_DEFAULT_MODEL  # v2 wrote this everywhere; not a choice
         self.timeout = timeout
         self.log = log
         self._clients: Dict[str, object] = {}
+        load_dotenv(self.project_root)
 
         global_cfg = _load_yaml(GLOBAL_CONFIG)
         project_cfg = _load_yaml(self.project_root / ".speky" / PROJECT_CONFIG_NAME)
@@ -147,7 +173,7 @@ class LLMRouter:
 
     def resolve(self, ref: str) -> Tuple[str, str]:
         """Split "provider/model" — the model part may itself contain slashes."""
-        if ref in self.providers:  # bare provider name, e.g. "host"
+        if ref in self.providers:  # bare provider name, e.g. "claude-code"
             return ref, self.providers[ref].get("default_model", "")
         if "/" in ref:
             head, rest = ref.split("/", 1)
@@ -178,16 +204,12 @@ class LLMRouter:
             return False
         if p["type"] == "claude-code":
             return shutil.which(p.get("command", "claude")) is not None
-        if p["type"] == "host":
-            return True
         return bool(self.api_key(name))
 
     def status(self, name: str) -> str:
         p = self.providers[name]
         if p["type"] == "claude-code":
             return "ready (claude CLI)" if self.is_available(name) else "claude CLI not found"
-        if p["type"] == "host":
-            return "ready (calling agent answers)"
         if p.get("api_key") and not p.get("api_key_env"):
             return "no key needed (local)" if "localhost" in p.get("base_url", "") else "ready"
         if self.is_available(name):
@@ -245,13 +267,6 @@ class LLMRouter:
                 last_error = LLMError(f"{ref}: provider '{name}' not ready ({self.status(name)})")
                 self.log(str(last_error))
                 continue
-            if self.providers[name]["type"] == "host":
-                try:
-                    return self._call_host(name, prompt, system, max_tokens, expect_json)
-                except LLMError as e:
-                    last_error = e
-                    self.log(str(e))
-                    continue
             for attempt in range(retries):
                 try:
                     return self._call(name, model, prompt, system, max_tokens, temperature, stream)
@@ -358,40 +373,6 @@ class LLMRouter:
             raise LLMError(f"claude CLI error: {data.get('result') or data}")
         return data.get("result", "")
 
-    def _call_host(self, name, prompt, system, max_tokens, expect_json) -> str:
-        """Host mode: hand the prompt to whoever runs SPEKY (e.g. a Claude Code session)
-        and block until they write the answer file. SPEKY then continues in-process, so
-        nothing is re-run and no files are created twice."""
-        host_dir = self.project_root / ".speky" / HOST_DIR_NAME
-        host_dir.mkdir(parents=True, exist_ok=True)
-        request_id = next_host_request_id(host_dir)
-        prompt_file = host_dir / f"{request_id}.prompt.md"
-        answer_file = host_dir / f"{request_id}.answer.md"
-        fmt = "JSON only — no prose, no code fences" if expect_json else "Markdown/plain text as the prompt asks"
-        prompt_file.write_text(HOST_PROMPT_TEMPLATE.format(
-            id=request_id, answer=answer_file, fmt=fmt, max_tokens=max_tokens,
-            system=system or "(none)", prompt=prompt))
-
-        timeout = int(self.providers[name].get("timeout", 1800))
-        print(f"\n⏸️  SPEKY host request {request_id} — waiting for the agent to answer "
-              f"(up to {timeout // 60} min).\n"
-              f"   Prompt:  {prompt_file}\n"
-              f"   Answer:  speky host answer {request_id} --file <file>   "
-              f"(or write {answer_file})\n", flush=True)
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            if answer_file.exists():
-                time.sleep(0.5)  # let a non-atomic writer finish
-                answer = answer_file.read_text().strip()
-                done = host_dir / "done"
-                done.mkdir(exist_ok=True)
-                prompt_file.rename(done / prompt_file.name)
-                answer_file.rename(done / answer_file.name)
-                print(f"▶️  Got answer for host request {request_id}; continuing.", flush=True)
-                return answer
-            time.sleep(1)
-        raise LLMError(f"host request {request_id}: no answer after {timeout}s ({answer_file})")
-
     # ------------------------------------------------------------------ discovery
     def list_models(self, name: str) -> List[str]:
         """Models the provider advertises (config `models:` list wins). Empty if unknown."""
@@ -423,7 +404,7 @@ model: {model}
 #   - claude-code/sonnet
 
 # Built-in providers: anthropic, openai, gemini, openrouter, nebius, opencode-go, opencode,
-# groq, together, fireworks, deepseek, mistral, xai, ollama, lmstudio, claude-code, host.
+# groq, together, fireworks, deepseek, mistral, xai, ollama, lmstudio, claude-code.
 # Add your own, or override a built-in (e.g. its base_url), here:
 # providers:
 #   my-vllm:
@@ -454,56 +435,3 @@ def save_model(model_ref: str, path: Path = GLOBAL_CONFIG):
     path.write_text("".join(lines))
 
 
-# ---------------------------------------------------------------------- host mode
-HOST_DIR_NAME = "host"
-
-HOST_PROMPT_TEMPLATE = """\
-<!-- SPEKY host request {id} -->
-# SPEKY host request {id}
-
-SPEKY is running in host mode: instead of calling an LLM it asks you, the agent
-running it, to produce this answer. Act as the model described under "System"
-and answer the "Prompt" below using your own knowledge of the project.
-
-- Write ONLY the answer — it is used verbatim. Format: {fmt}.
-- Aim for at most ~{max_tokens} tokens.
-- Deliver it with:  speky host answer {id} --file <your-file>
-  (or write it to {answer})
-SPEKY is blocked until the answer arrives, then continues on its own.
-
-## System
-
-{system}
-
-## Prompt
-
-{prompt}
-"""
-
-
-def next_host_request_id(host_dir: Path) -> str:
-    used = [int(f.name[:3]) for f in list(host_dir.glob("*.md")) + list((host_dir / "done").glob("*.md"))
-            if f.name[:3].isdigit()]
-    return f"{max(used, default=0) + 1:03d}"
-
-
-def pending_host_requests(project_root: Path) -> List[Path]:
-    """Prompt files that have no answer yet, oldest first."""
-    host_dir = Path(project_root) / ".speky" / HOST_DIR_NAME
-    if not host_dir.exists():
-        return []
-    return sorted(f for f in host_dir.glob("*.prompt.md")
-                  if not (host_dir / f.name.replace(".prompt.md", ".answer.md")).exists())
-
-
-def write_host_answer(project_root: Path, request_id: str, text: str) -> Path:
-    """Atomically deliver an answer so a waiting SPEKY never reads half a file."""
-    host_dir = Path(project_root) / ".speky" / HOST_DIR_NAME
-    request_id = f"{int(request_id):03d}" if request_id.isdigit() else request_id
-    if not (host_dir / f"{request_id}.prompt.md").exists():
-        raise LLMError(f"No pending host request {request_id} in {host_dir}")
-    tmp = host_dir / f"{request_id}.answer.md.tmp"
-    tmp.write_text(text)
-    final = host_dir / f"{request_id}.answer.md"
-    tmp.replace(final)
-    return final

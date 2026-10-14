@@ -188,14 +188,14 @@ def _roadmap_action(project: Project) -> Optional[dict]:
     from .tasks import Tasks
     tasks = Tasks(project)
     task_help = ("Size it first: if it changes behaviour, promote it (`speky task promote {id} --to story`) "
-                 "and follow the change workflow; otherwise do it, run the tests, then `speky task done {id}`. "
+                 "and follow the change workflow; otherwise do it, then `speky task done {id} --verify` (runs the tests). "
                  "Work you discover goes in as a new task (`speky task add`).")
     doing = [t for t in tasks.list(status="doing") if not t.get("promoted_to")]
     if doing:
         t = doing[0]
         return _action("task", None, f"Task {t['id']} is in progress: {t['text'][:120]}",
                        task_help.format(id=t["id"]), skill="speky",
-                       commands=[f"speky task done {t['id']}", f"speky task promote {t['id']} --to story"],
+                       commands=[f"speky task done {t['id']} --verify", f"speky task promote {t['id']} --to story"],
                        done_when=f"{t['id']} is done or promoted", task=t["id"])
     phase = phases_mod.current(project)
     todo = [t for t in tasks.list(status="todo") if not phase or t.get("phase") in (phase.id, None)]
@@ -204,7 +204,7 @@ def _roadmap_action(project: Project) -> Optional[dict]:
         where = f" in {phase.id}" if phase and t.get("phase") == phase.id else ""
         return _action("task", None, f"Next task{where}: {t['text'][:120]}",
                        f"Start it with `speky task start {t['id']}`. " + task_help.format(id=t["id"]),
-                       skill="speky", commands=[f"speky task start {t['id']}", f"speky task done {t['id']}"],
+                       skill="speky", commands=[f"speky task start {t['id']}", f"speky task done {t['id']} --verify"],
                        done_when=f"{t['id']} is done or promoted", task=t["id"])
     if not phase:
         return None

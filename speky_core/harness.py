@@ -61,7 +61,19 @@ RECIPES = {
     "codex": {"skills": ".agents/skills", "file": "AGENTS.md", "profile": "full", "hook": None,
               "v2_ide": None},
     "agents-md": {"skills": None, "file": "AGENTS.md", "profile": "full", "hook": None, "v2_ide": None},
+    # the tools v2 wrote rules for; they all read AGENTS.md or their own instruction file today
+    "cursor": {"skills": ".agents/skills", "file": "AGENTS.md", "profile": "full", "hook": None,
+               "v2_ide": "cursor", "legacy": [".cursorrules"]},
+    "windsurf": {"skills": ".agents/skills", "file": "AGENTS.md", "profile": "full", "hook": None,
+                 "v2_ide": "windsurf", "legacy": [".windsurfrules"]},
+    "vscode": {"skills": ".github/skills", "file": ".github/copilot-instructions.md", "profile": "full",
+               "hook": None, "v2_ide": "vscode"},
+    "antigravity": {"skills": ".agent/skills", "file": ".agent/rules/speky.md", "profile": "full", "hook": None,
+                    "v2_ide": "antigravity",
+                    "legacy": [".agent/rules/01-speky-core.md", ".agent/rules/02-speky-structure.md",
+                               ".agent/rules/03-speky-context.md", ".agent/rules/99-speky-task.md"]},
 }
+ALIASES = {"copilot": "vscode", "github-copilot": "vscode", "agents": "agents-md"}
 
 
 def _imports_agents_md(text: str) -> bool:
@@ -152,8 +164,34 @@ def _strip_v2_testing(text: str) -> (str, bool):
     return (new + "\n" if new else ""), new.strip() != text.strip()
 
 
+def _clean_legacy(project: Project, recipe: dict) -> List[str]:
+    """v2 rules files for this tool: strip SPEKY's part; delete the file if nothing else is left
+    (a copy goes to .speky/backups/)."""
+    notes = []
+    for rel in recipe.get("legacy", []):
+        path = project.root / rel
+        if not path.exists():
+            continue
+        original = path.read_text()
+        text, note = _strip_v2_rules(project, path, original)
+        text, _ = _strip_v2_testing(text)
+        generated = rel.startswith(".agent/rules/") and "SPEKY" in original
+        if generated or not text.strip():
+            backup_dir = project.dir / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / ".gitignore").write_text("# local safety copies; git history already has the originals\n*\n")
+            (backup_dir / f"{path.name.lstrip('.')}.{datetime.now():%Y%m%d-%H%M%S}.bak").write_text(original)
+            path.unlink()
+            notes.append(f"{rel}: v2 rules file removed (the SPEKY block now lives in {recipe['file']})")
+        elif text != original:
+            path.write_text(text)
+            notes.append(f"{rel}: {note or 'removed v2 testing-context section'}; your own rules kept")
+    return notes
+
+
 def _write_block(project: Project, rel: str, profile: str) -> List[str]:
     path = project.root / rel
+    path.parent.mkdir(parents=True, exist_ok=True)
     text = path.read_text() if path.exists() else ""
     notes = []
     text, note = _strip_v2_rules(project, path, text)
@@ -250,6 +288,7 @@ def _disable_v2_rules(project: Project, ide: str) -> List[str]:
 
 
 def setup(project: Project, harness: str) -> Dict:
+    harness = ALIASES.get(harness, harness)
     recipe = _recipe(harness)
     notes = []
     if recipe["skills"]:
@@ -259,6 +298,7 @@ def setup(project: Project, harness: str) -> Dict:
         notes += _remove_block(project, recipe["file"])
         notes.append(f"{recipe['file']} only imports {target}: SPEKY block goes into {target}")
     notes += _write_block(project, target, profile)
+    notes += _clean_legacy(project, recipe)
     if recipe["hook"]:
         notes += _install_hook(project, recipe["hook"])
     notes += _disable_v2_rules(project, recipe["v2_ide"])
@@ -271,6 +311,7 @@ def setup(project: Project, harness: str) -> Dict:
 
 
 def check(project: Project, harness: str) -> Dict:
+    harness = ALIASES.get(harness, harness)
     recipe = _recipe(harness)
     files = {}
     target, profile = instruction_target(project, recipe)
@@ -316,6 +357,7 @@ def check(project: Project, harness: str) -> Dict:
 
 
 def remove(project: Project, harness: str) -> Dict:
+    harness = ALIASES.get(harness, harness)
     recipe = _recipe(harness)
     notes = []
     target, _ = instruction_target(project, recipe)
@@ -323,7 +365,9 @@ def remove(project: Project, harness: str) -> Dict:
                   if h != harness and h in RECIPES}
     for rel in {recipe["file"], target} - still_used:
         notes += _remove_block(project, rel)
-    if recipe["skills"]:
+    skills_in_use = {RECIPES[h]["skills"] for h in project.config.get("harnesses", [])
+                     if h != harness and h in RECIPES}
+    if recipe["skills"] and recipe["skills"] not in skills_in_use:
         for name in skill_names():
             target = project.root / recipe["skills"] / name
             if target.exists():

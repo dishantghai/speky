@@ -3,11 +3,5 @@ anthropic>=0.39.0
 openai>=1.0.0          # also used for Gemini, OpenRouter, Nebius, OpenCode Go, Groq, Ollama, ...
 
 # Utilities
-python-dotenv>=1.0.0
 requests>=2.31.0
 pyyaml>=6.0            # ~/.speky/models.yaml
-
-# Optional: TraceAI observability (enabled when FI_API_KEY and FI_SECRET_KEY are set)
-fi-instrumentation-otel[grpc]>=1.1.0
-traceai-openai>=0.1.10
-traceai-anthropic>=0.1.10

@@ -12,7 +12,7 @@ as they are. Work on a branch; never stage or change the user's unrelated uncomm
 2. `speky migrate --json` (dry run) → `speky migrate --apply` → dry run again: nothing pending.
    It also moves v2's product profile and tech stack into knowledge and its backlog file into the
    backlog; read what it reports.
-3. `speky setup <claude-code|codex|agents-md>` for each tool the team uses → `speky setup <h> --check`
+3. `speky setup <harness>` for each tool the team uses (`speky setup --list`; v2's cursor, windsurf, vscode and antigravity rules files are cleaned up) → `speky setup <h> --check`
    says current. The old v2 rules block is replaced (your own rules kept; backup in `.speky/backups/`).
    If CLAUDE.md only imports AGENTS.md, the block goes into AGENTS.md.
 4. `speky test init`; check `speky config get verify_command`.

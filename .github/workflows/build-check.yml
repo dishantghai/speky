@@ -39,8 +39,11 @@ jobs:
             --output-dir=dist \
             --output-filename=speky \
             --include-package=anthropic \
-            --include-package=dotenv \
             --include-package=requests \
+            --include-package=openai \
+            --include-package=yaml \
+            --nofollow-import-to=google.genai \
+            --include-module=speky_llm \
             --include-package=speky_core \
             --include-package-data=speky_core \
             --follow-imports \
@@ -51,4 +54,5 @@ jobs:
       - name: Smoke test binary
         run: |
           chmod +x dist/speky
+          ./dist/speky --help
           ./dist/speky status || true

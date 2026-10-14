@@ -26,7 +26,7 @@ def init(root: Path, idea: str = "", from_project: bool = False, harness_name: s
     evidence = None
     if from_project:
         evidence = projectinfo.collect_evidence(project.root)
-        if not idea and evidence.get("summary"):
+        if not idea and evidence.get("summary") and not evidence["summary"].startswith("Existing project '"):
             knowledge.remember(project, f"From the README: {evidence['summary']}", "product", always=True)
             recorded.append("README summary")
         for kind, value in (evidence.get("detected_tech") or {}).items():

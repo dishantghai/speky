@@ -19,7 +19,7 @@ setup(
     long_description_content_type="text/markdown",
     author="SPEKY Contributors",
     url="https://github.com/dishantghai/speky",
-    py_modules=["speky", "speky_testing", "speky_llm", "traceai_config"],
+    py_modules=["speky", "speky_llm"],
     packages=["speky_core"],
     package_data={"speky_core": ["skills/*/SKILL.md"]},
     python_requires=">=3.8",
