@@ -52,12 +52,24 @@ def find_design_folders(project: Project) -> List[str]:
         if not d.is_dir() or any(p in SKIP_DIRS or p.startswith(".") for p in d.relative_to(project.root).parts):
             continue
         rel = str(d.relative_to(project.root))
-        if not name_re.search(d.name) or any(rel == k or rel.startswith(k + "/") for k in known):
+        if not name_re.search(d.name) or any(rel == k or rel.startswith(k + "/") or k.startswith(rel + "/")
+                                             for k in known):
             continue
-        images = [f for f in d.iterdir() if f.is_file() and f.suffix.lower() in IMAGE_EXT - {".pdf"}]
-        if len(images) >= 3 and not any(rel.startswith(f + "/") for f in found):
+        images = 0
+        for f in d.rglob("*"):
+            if f.is_file() and f.suffix.lower() in IMAGE_EXT - {".pdf"}:
+                images += 1
+                if images >= 3:
+                    break
+        if images >= 3:
             found.append(rel)
-    return found[:10]
+    # keep the outermost folder of each group (`docs/ux/screens`, not each screen inside it)
+    found.sort(key=lambda r: (r.count("/"), r))
+    outer = []
+    for rel in found:
+        if not any(rel.startswith(o + "/") for o in outer):
+            outer.append(rel)
+    return outer[:10]
 NOT_NEEDED_RE = re.compile(r"\bno (?:new )?(?:design|screens?|ui change)s? (?:is |are )?needed\b|\bnot needed\b"
                            r"|\bno ui change\b", re.I)
 TO_DESIGN_RE = re.compile(r"\bto be designed\b|\bnot designed yet\b|\bTBD\b", re.I)
