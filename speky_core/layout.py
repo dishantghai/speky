@@ -90,7 +90,8 @@ def _research_folders(project: Project) -> List[str]:
         if not d.is_dir() or any(p in SKIP_DIRS or p.startswith(".") for p in d.relative_to(project.root).parts):
             continue
         rel = str(d.relative_to(project.root))
-        if re.search(r"research", d.name, re.I) and rel not in known and \
+        if re.search(r"research", d.name, re.I) and \
+                not any(rel == k or rel.startswith(k + "/") or k.startswith(rel + "/") for k in known) and \
                 not any(rel.startswith(f + "/") for f in found) and \
                 len([f for f in d.rglob("*.md")][:2]) >= 2:
             found.append(rel)
