@@ -1,23 +1,12 @@
 #!/usr/bin/env python3
 """
-SPEKY v2: AI-Assisted Scalable Engineering Framework
-Orchestration layer for AI-assisted software development
+SPEKY: spec-driven development for AI coding agents.
 
-Commands:
-    speky init "Product idea"           - Initialize new project
-    speky spec "Feature name"           - Create feature specification  
-    speky plan <spec-id>                 - Generate implementation plan
-    speky story --type <type> "Title"   - Create story (feature/bug/enhancement)
-    speky implement <id>                 - Hand off to IDE (Windsurf/Cursor/Claude Code)
-    speky status                         - Show all specs and stories
-    speky sync                           - Update codebase context
-    speky review                         - Check spec-code drift
-
-Design Principles:
-    - Tech/IDE/Scale agnostic
-    - Thin orchestration layer (not a replacement for AI coding tools)
-    - MCP-ready for context management
-    - Supports ongoing development (not just initial scaffolding)
+v3 (speky_core): SPEKY keeps state, rules and evidence; any coding agent (Claude Code, Codex,
+Cursor, ...) does the reasoning through `speky setup | next | check | verify | archive ...`.
+v2 (this file): the classic commands — init, spec, plan, implement, complete, commit, epics,
+phases, design, test, import — which call an AI model themselves. Both work on the same
+.speky/ folders. Run `speky --help`.
 """
 
 import json
@@ -20636,6 +20625,32 @@ def _global_options_parser() -> argparse.ArgumentParser:
     return parent
 
 
+# Shown in `speky --help`; the commands themselves live in speky_core.cli
+V3_COMMAND_HELP = [
+    ("setup", "[v3] Set up SPEKY for a coding agent: skills + instructions (claude-code, codex, agents-md)"),
+    ("next", "[v3] The one next action for the agent, with the skill to use"),
+    ("prime", "[v3] Workflow + current state for an agent session"),
+    ("new", "[v3] Create a change: new spec|story \"<title>\""),
+    ("state", "[v3] All items with status, blockers and gates"),
+    ("ready", "[v3] Items whose dependencies and gates are clear"),
+    ("check", "[v3] Rubric + findings ledger; reports when validation has converged"),
+    ("finding", "[v3] Add, list or resolve validation findings"),
+    ("start", "[v3] Record the starting commit and begin work on an item"),
+    ("evidence", "[v3] Record verification evidence for a requirement"),
+    ("verify", "[v3] Evidence-gated verification (every requirement + verify command)"),
+    ("archive", "[v3] Merge a verified change into the living specs"),
+    ("capabilities", "[v3] Living specs with requirement counts and problems"),
+    ("decide", "[v3] Append to the decision log"),
+    ("remember", "[v3] Save a project fact for every agent session"),
+    ("adr", "[v3] Architecture decision records (new, list)"),
+    ("term", "[v3] Add a glossary term"),
+    ("gate", "[v3] Human / CI / PR gates that block an item"),
+    ("link", "[v3] Typed links between items (discovered-from, caused-by, ...)"),
+    ("migrate", "[v3] Bring a v2 project to v3 (dry run; --apply; --done TASK)"),
+    ("set", "[v3] Change an item's status by hand"),
+]
+
+
 def _v3_commands() -> set:
     try:
         from speky_core.cli import COMMANDS
@@ -20665,9 +20680,18 @@ def main():
         sys.exit(v3_main(sys.argv[1:]))
     parser = argparse.ArgumentParser(
         prog="speky",
-        description="SPEKY v2: AI-Assisted Scalable Engineering Framework",
+        description="SPEKY: spec-driven development for AI coding agents",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Start here:
+  New project       speky setup claude-code      (or codex, agents-md) — then ask your agent
+                                                 to build something; no API key needed
+  What to do next   speky next
+  v2 project        speky migrate                (dry run, then --apply) — checklist:
+                    https://github.com/dishantghai/speky/blob/main/docs/v3/MIGRATION.md
+  Classic v2 flow   speky init "idea" → spec → plan → implement → complete → commit
+                    (these call an AI model — see "Choosing the AI model")
+
 Choosing the AI model (any provider):
   config --providers             List providers (OpenRouter, Nebius, OpenCode Go, Claude
                                  subscription, Ollama, ...) and whether their keys are set
@@ -20692,9 +20716,8 @@ Host mode (the calling agent is SPEKY's model — no API key needed):
   host show [ID]                 Print a waiting prompt
   host answer ID --file F        Deliver an answer (or pipe it on stdin)
 
-SPEKY v3 (agent protocol — `speky next --help` etc.; add --json for one JSON document):
-  new spec|story, state, ready, next, check, finding, start, evidence, verify, archive,
-  decide, remember, adr, term, gate, link, prime, setup, migrate, set   (docs/v3/CONTRACTS.md)
+Agent workflow commands (v3) — any coding agent drives these; add --json for machine output.
+Each has its own help: `speky next --help`. Reference: https://github.com/dishantghai/speky/blob/main/docs/v3/CONTRACTS.md
 
 Exit codes: 0 ok · 1 failed · 2 bad usage · 4 needs an --answer · 130 interrupted
 
@@ -20857,6 +20880,11 @@ Examples:
         kwargs.setdefault("formatter_class", argparse.RawDescriptionHelpFormatter)
         return _add_parser(name, **kwargs)
     subparsers.add_parser = add_parser_with_global_options
+
+    # v3 agent-workflow commands are dispatched to speky_core before this parser runs; they are
+    # registered here only so `speky --help` lists them
+    for v3_name, v3_help in V3_COMMAND_HELP:
+        _add_parser(v3_name, help=v3_help, add_help=False)
     
     # init
     init_parser = subparsers.add_parser(

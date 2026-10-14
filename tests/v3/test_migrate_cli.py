@@ -120,3 +120,9 @@ def test_migrate_done_acknowledges_judgement_tasks(tmp_path, monkeypatch):
     out = cli("migrate", "--done", "check_suspect_completions")
     assert "check_suspect_completions" not in out["remaining"]
     assert cli("migrate", "--done", "nope", expect=1)["error"]["code"] == "unknown_migration_task"
+
+
+def test_help_lists_every_v3_command():
+    import speky
+    from speky_core.cli import COMMANDS
+    assert {name for name, _ in speky.V3_COMMAND_HELP} == COMMANDS

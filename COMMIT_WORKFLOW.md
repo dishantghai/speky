@@ -32,7 +32,7 @@ speky implement 001
 
 ### Step 4: Mark Complete and Commit
 ```bash
-speky complete 001 --commit
+speky complete 001 && speky commit 001
 ```
 
 Does:
@@ -64,8 +64,8 @@ git push
 | `speky spec "name"` | Create feature spec |
 | `speky plan 001` | Generate implementation plan |
 | `speky implement 001` | Hand off to IDE |
-| `speky complete 001 --commit` | Mark complete + commit |
-| `speky complete 001 --commit --edit` | Mark complete + edit message + commit |
+| `speky complete 001 && speky commit 001` | Mark complete, then commit |
+| `speky complete 001 && speky commit 001 --edit` | Mark complete + edit message + commit |
 | `speky status` | Show project progress |
 | `speky review 001` | Check spec-code alignment |
 
@@ -93,7 +93,7 @@ speky implement 001
 # ... code ...
 
 # 2. Commit locally
-speky complete 001 --commit
+speky complete 001 && speky commit 001
 
 # 3. Push when ready
 git push
@@ -106,13 +106,13 @@ speky spec "Feature 1"
 speky plan 001
 speky implement 001
 # ... code ...
-speky complete 001 --commit
+speky complete 001 && speky commit 001
 
 speky spec "Feature 2"
 speky plan 002
 speky implement 002
 # ... code ...
-speky complete 002 --commit
+speky complete 002 && speky commit 002
 
 # 2. Push all at once
 git push
@@ -127,7 +127,7 @@ speky implement 001
 # ... code ...
 
 # 2. Commit with custom message
-speky complete 001 --commit --edit
+speky complete 001 && speky commit 001 --edit
 # Edit message in your editor
 # Save and close
 
@@ -147,7 +147,7 @@ speky implement 001
 # ... code ...
 
 # 3. Commit with SPEKY
-speky complete 001 --commit
+speky complete 001 && speky commit 001
 
 # 4. Push feature branch
 git push origin feature/video-transcription
@@ -169,7 +169,7 @@ speky implement 001
 # ... code ...
 
 # 3. Commit
-speky complete 001 --commit
+speky complete 001 && speky commit 001
 
 # 4. Push
 git push
@@ -188,7 +188,7 @@ speky implement 001
 # ... code in IDE ...
 
 # 3. Commit first feature
-speky complete 001 --commit
+speky complete 001 && speky commit 001
 # Output:
 # ✅ Status updated: completed
 # ✅ Committed: feat: Complete Video transcription (001)
@@ -207,7 +207,7 @@ speky implement 002
 # ... code in IDE ...
 
 # 5. Commit second feature with custom message
-speky complete 002 --commit --edit
+speky complete 002 && speky commit 002 --edit
 # Edit message, save
 
 # 6. Check git status
@@ -228,7 +228,7 @@ speky status
 
 ### Basic Usage
 ```bash
-speky complete 001 --commit
+speky complete 001 && speky commit 001
 ```
 
 Does:
@@ -239,7 +239,7 @@ Does:
 
 ### With Custom Message
 ```bash
-speky complete 001 --commit --edit
+speky complete 001 && speky commit 001 --edit
 ```
 
 Opens your editor to customize the commit message.
@@ -342,7 +342,7 @@ You can edit this message with `--edit` flag.
 
 ## Tips
 
-1. **Always use `speky complete --commit`** - Don't commit manually
+1. **Always run `speky complete <id>` then `speky commit <id>`** - Don't commit manually
 2. **Edit messages when needed** - Use `--edit` for custom messages
 3. **Push regularly** - Don't let commits pile up
 4. **Fetch before implementing** - Stay in sync with team
