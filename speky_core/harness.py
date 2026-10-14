@@ -22,6 +22,7 @@ END = "<!-- END SPEKY v:3 -->"
 V2_BEGIN = "<!-- BEGIN SPEKY MANAGED BLOCK"
 V2_END = "<!-- END SPEKY MANAGED BLOCK -->"
 HOOK_COMMAND = "command -v speky >/dev/null 2>&1 && speky prime --hook-json || true"
+PRECOMPACT_COMMAND = "command -v speky >/dev/null 2>&1 && speky checkpoint --auto >/dev/null 2>&1 || true"
 
 MINIMAL_BLOCK = """## SPEKY
 
@@ -59,6 +60,26 @@ RECIPES = {
               "v2_ide": None},
     "agents-md": {"skills": None, "file": "AGENTS.md", "profile": "full", "hook": None, "v2_ide": None},
 }
+
+
+def _imports_agents_md(text: str) -> bool:
+    """CLAUDE.md that only imports AGENTS.md (plus, possibly, an old SPEKY block)."""
+    found = _find_block(text)
+    if found:
+        text = text[:found[0]] + text[found[1]:]
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return bool(lines) and all(l.startswith("@") for l in lines) and any(l == "@AGENTS.md" for l in lines)
+
+
+def instruction_target(project: Project, recipe: dict) -> (str, str):
+    """(file, profile) the SPEKY block goes into. A CLAUDE.md that only imports AGENTS.md means the
+    project keeps one instruction file for every tool, so the block goes there (full profile)."""
+    rel = recipe["file"]
+    if rel == "CLAUDE.md":
+        path = project.root / "CLAUDE.md"
+        if path.exists() and _imports_agents_md(path.read_text()):
+            return "AGENTS.md", "full"
+    return rel, recipe["profile"]
 
 
 def skill_names() -> List[str]:
@@ -151,6 +172,19 @@ def _write_block(project: Project, rel: str, profile: str) -> List[str]:
     return notes
 
 
+def _remove_block(project: Project, rel: str) -> List[str]:
+    path = project.root / rel
+    if not path.exists():
+        return []
+    text = path.read_text()
+    found = _find_block(text)
+    if not found:
+        return []
+    text = (text[:found[0]].rstrip("\n") + "\n" + text[found[1]:].lstrip("\n")).strip("\n")
+    path.write_text(text + "\n" if text else "")
+    return [f"{rel}: SPEKY block removed"]
+
+
 def _install_skills(project: Project, rel: str) -> List[str]:
     dest = project.root / rel
     notes = []
@@ -167,7 +201,8 @@ def _hook_entries(settings: dict) -> list:
 
 
 def _is_speky_hook(entry: dict) -> bool:
-    return any("speky prime" in h.get("command", "") for h in entry.get("hooks", []))
+    return any(("speky prime" in h.get("command", "")) or ("speky checkpoint" in h.get("command", ""))
+               for h in entry.get("hooks", []))
 
 
 def _install_hook(project: Project, rel: str) -> List[str]:
@@ -179,13 +214,16 @@ def _install_hook(project: Project, rel: str) -> List[str]:
         except json.JSONDecodeError as e:
             raise SpekyError("settings_unreadable", f"{rel} is not valid JSON: {e}",
                              "Fix it by hand, then run setup again.")
-    entries = _hook_entries(settings)
-    entries[:] = [e for e in entries if not _is_speky_hook(e)]
-    entries.append({"matcher": "startup|resume|clear|compact",
-                    "hooks": [{"type": "command", "command": HOOK_COMMAND}]})
+    hooks = settings.setdefault("hooks", {})
+    for event, matcher, command in (("SessionStart", "startup|resume|clear|compact", HOOK_COMMAND),
+                                    ("PreCompact", "manual|auto", PRECOMPACT_COMMAND)):
+        entries = hooks.setdefault(event, [])
+        entries[:] = [e for e in entries if not _is_speky_hook(e)]
+        entries.append({"matcher": matcher, "hooks": [{"type": "command", "command": command}]})
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings, indent=2) + "\n")
-    return [f"{rel}: SessionStart hook runs `speky prime --hook-json` (startup, resume, clear, compact)"]
+    return [f"{rel}: SessionStart hook runs `speky prime --hook-json` (startup, resume, clear, compact)",
+            f"{rel}: PreCompact hook runs `speky checkpoint --auto` (saves state before compaction)"]
 
 
 def _disable_v2_rules(project: Project, ide: str) -> List[str]:
@@ -214,7 +252,11 @@ def setup(project: Project, harness: str) -> Dict:
     notes = []
     if recipe["skills"]:
         notes += _install_skills(project, recipe["skills"])
-    notes += _write_block(project, recipe["file"], recipe["profile"])
+    target, profile = instruction_target(project, recipe)
+    if target != recipe["file"]:
+        notes += _remove_block(project, recipe["file"])
+        notes.append(f"{recipe['file']} only imports {target}: SPEKY block goes into {target}")
+    notes += _write_block(project, target, profile)
     if recipe["hook"]:
         notes += _install_hook(project, recipe["hook"])
     notes += _disable_v2_rules(project, recipe["v2_ide"])
@@ -229,19 +271,23 @@ def setup(project: Project, harness: str) -> Dict:
 def check(project: Project, harness: str) -> Dict:
     recipe = _recipe(harness)
     files = {}
-    path = project.root / recipe["file"]
+    target, profile = instruction_target(project, recipe)
+    path = project.root / target
     found = _find_block(path.read_text()) if path.exists() else None
     if not found:
-        files[recipe["file"]] = "missing"
+        files[target] = "missing"
     else:
-        expected = _block_text(recipe["profile"])
-        files[recipe["file"]] = "current" if found[2] == recipe["profile"] and \
+        expected = _block_text(profile)
+        files[target] = "current" if found[2] == profile and \
             BEGIN_RE.search(expected).group(2) == found[3] and \
             found[4] == expected.split("\n", 1)[1].rsplit(END, 1)[0].strip("\n") else "stale"
         text = path.read_text()
         if V2_BEGIN in text or ("# SPEKY Project Rules" in text and "# USER RULES" in text) \
                 or "SPEKY Testing Context" in text:
-            files[recipe["file"]] = "stale (v2 rules still present)"
+            files[target] = "stale (v2 rules still present)"
+    if target != recipe["file"] and (project.root / recipe["file"]).exists() and \
+            _find_block((project.root / recipe["file"]).read_text()):
+        files[recipe["file"]] = "stale (SPEKY block belongs in %s)" % target
     if recipe["skills"]:
         for name in skill_names():
             rel = f"{recipe['skills']}/{name}/SKILL.md"
@@ -256,8 +302,9 @@ def check(project: Project, harness: str) -> Dict:
         ok = False
         if hook_path.exists():
             try:
-                ok = any(_is_speky_hook(e) for e in json.loads(hook_path.read_text())
-                         .get("hooks", {}).get("SessionStart", []))
+                hooks = json.loads(hook_path.read_text()).get("hooks", {})
+                ok = all(any(_is_speky_hook(e) for e in hooks.get(ev, []))
+                         for ev in ("SessionStart", "PreCompact"))
             except json.JSONDecodeError:
                 ok = False
         files[recipe["hook"]] = "current" if ok else "missing"
@@ -269,14 +316,11 @@ def check(project: Project, harness: str) -> Dict:
 def remove(project: Project, harness: str) -> Dict:
     recipe = _recipe(harness)
     notes = []
-    path = project.root / recipe["file"]
-    if path.exists():
-        found = _find_block(path.read_text())
-        if found:
-            text = path.read_text()
-            text = (text[:found[0]].rstrip("\n") + "\n" + text[found[1]:].lstrip("\n")).strip("\n")
-            path.write_text(text + "\n" if text else "")
-            notes.append(f"{recipe['file']}: SPEKY block removed")
+    target, _ = instruction_target(project, recipe)
+    still_used = {instruction_target(project, RECIPES[h])[0] for h in project.config.get("harnesses", [])
+                  if h != harness and h in RECIPES}
+    for rel in {recipe["file"], target} - still_used:
+        notes += _remove_block(project, rel)
     if recipe["skills"]:
         for name in skill_names():
             target = project.root / recipe["skills"] / name
@@ -287,16 +331,21 @@ def remove(project: Project, harness: str) -> Dict:
         hook_path = project.root / recipe["hook"]
         if hook_path.exists():
             settings = json.loads(hook_path.read_text() or "{}")
-            entries = _hook_entries(settings)
-            before = len(entries)
-            entries[:] = [e for e in entries if not _is_speky_hook(e)]
-            if not entries:
-                settings["hooks"].pop("SessionStart")
-            if not settings["hooks"]:
-                settings.pop("hooks")
+            hooks = settings.get("hooks", {})
+            removed = False
+            for event in ("SessionStart", "PreCompact"):
+                entries = hooks.get(event, [])
+                kept = [e for e in entries if not _is_speky_hook(e)]
+                removed = removed or len(kept) != len(entries)
+                if kept:
+                    hooks[event] = kept
+                else:
+                    hooks.pop(event, None)
+            if not hooks:
+                settings.pop("hooks", None)
             hook_path.write_text(json.dumps(settings, indent=2) + "\n")
-            if len(entries) != before:
-                notes.append(f"{recipe['hook']}: SessionStart hook removed")
+            if removed:
+                notes.append(f"{recipe['hook']}: SPEKY hooks removed")
     cfg = project.config
     cfg["harnesses"] = [h for h in cfg["harnesses"] if h != harness]
     config.save(project.root, cfg)

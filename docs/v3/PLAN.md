@@ -496,6 +496,87 @@ Branch `v3/build` (worktree `../speky-v3`); `main` is an ancestor, so it fast-fo
 **Parity notes (§2.8)**: every v2 command still runs unchanged on the same folders; design, testing,
 phases, epics, import, poc-import keep their v2 implementation for now.
 
+## 10. Milestone 2: continuity *(agreed 2026-10-14)*
+
+Goal: SPEKY becomes the only store for everything an agent needs to pick up at the right point after
+compaction or in a new session, replacing hand-kept mechanisms like aIDE's `ops/agent/` (STATE, PLAN,
+LOG, KNOWLEDGE, owner-next-steps) and its AGENTS.md session protocol. Stores are **markdown files SPEKY
+parses** (people and agents can edit them by hand; SPEKY reads the edits back), not hidden JSON.
+
+| # | Feature | Replaces in aIDE |
+|---|---|---|
+| 1 | `speky handoff` / `speky checkpoint`: log entry, regenerated state snapshot, optional `Handoff:` commit | the AGENTS.md §3 handoff |
+| 2 | PreCompact hook → `speky checkpoint --auto` (mechanical snapshot before compaction) | "treat any milestone as a possible last moment" |
+| 3 | `prime` session-start block: last handoff, commits since, uncommitted files, last test run, "trust git" rule | AGENTS.md §1 steps 1–5 |
+| 4 | Roadmap: milestones (phases/tracks) with gates + lightweight tasks `W<n>` (todo/doing/done/deferred, nested, promotable to story/spec) in `.speky/roadmap.md`; `next` falls back to tasks | PLAN.md |
+| 5 | Knowledge by topic in `.speky/knowledge/<topic>.md`; `always` topics injected, others indexed with a read-when trigger; promote to ADR | KNOWLEDGE.md |
+| 6 | Owner actions `O<n>` in `.speky/owner.md` (checkboxes + notes the owner writes) | ops/temp/owner-next-steps.md |
+| 7 | ~~Format-specific importer~~ *(dropped: it would bake one project's conventions into SPEKY)*. Adoption of hand-kept notes is done with the generic commands, driven by the `speky-migrate` skill; `speky roadmap fmt` gives IDs to tasks written by hand | — |
+| 8 | Block goes into AGENTS.md when CLAUDE.md only imports it | — |
+| 9 | Per-label done checks (`run`, `file`, `manual`) enforced by `verify` | AGENTS.md §4b UI definition of done |
+| 10 | References (`adr:0021`, `screen:RV-E2-held`) checked against configurable patterns; `paths.adr_dir` + project ADR template | screen-ID and ADR citations |
+
+Project-specific rules (aIDE's constitution, architecture rules, UX process) stay in the project's own
+AGENTS.md outside SPEKY's block; SPEKY only provides the mechanisms. **Nothing in SPEKY is specific to
+aIDE**: aIDE is retrofitted onto these generic features afterwards, as any project would be.
+
+## 11. Milestone 3: one SPEKY *(proposed 2026-10-14)*
+
+**Goal (owner):** the new SPEKY is robust, complete and unambiguous. No v2 command is kept alive only for
+compatibility: every v2 capability becomes a native feature — one data model, one command style
+(non-interactive, `--json` everywhere), reasoning done by the agent through skills. When every row below
+has its new home and its parity test, the v2 implementation (`speky.py`'s 21k lines, 176 interactive
+prompts, 18 commands that call a model themselves) is deleted.
+
+**Rules that make it unambiguous**
+- One store per concept; one command family per concept; one way to do each thing.
+- The CLI never asks questions and never calls a model. Questions to the user and judgement belong to the
+  agent, guided by a skill; SPEKY records the results.
+- Every command: `--json` output, stable error codes with a fix, idempotent where possible.
+
+| v2 capability | New home (command · data · skill) | Notes |
+|---|---|---|
+| `init` (idea interview, product profile, tech stack, research docs, specs from research, `--from-project`) | `speky init` (scaffold + setup) · `knowledge/product.md` (always) + ADRs/`knowledge/tech.md` · **speky-init** skill (≤5 questions, reads repo/docs, proposes first specs/tasks) | product profile and tech stack stop being a separate JSON |
+| `spec`, `story` (types, `--epic`, `--spec`, `--files`), `adopt` | `speky new spec\|story` (+ `--epic --related --files --labels --phase`) · items · **speky-propose** | hand-made folders are recognised automatically; `adopt` = `speky check` |
+| `validate-spec`, `validate-story` | `speky check` · findings ledger · **speky-validate** | one validator |
+| `plan` | **speky-plan** skill + a plan rubric in `speky check` (every requirement covered, each task has a verify command) | |
+| `implement` (context chain, IDE handoff, `--tdd`) | `speky start` + `speky context <id>` (packet: doc, plan, deps, epic, phase, design, files, ADRs, knowledge triggers) · `--tdd` → red/green evidence | no rules-file rewriting |
+| `complete` (drift detection + resolution) | `speky verify` + review step in **speky-verify** (fresh-context diff review → findings) + `speky archive` | evidence-based instead of keyword-guessing |
+| `commit` | `speky commit <id>` (message from item, requirements met, evidence; explicit files) | no model call |
+| `status` | `speky status` (human) / `--json` | `state` becomes an alias |
+| `sync` (codebase.md) | knowledge topics with read-when triggers, maintained by the agent | stored file maps rot (ETH study); the agent reads code live |
+| `review` | `speky review [<id>]`: re-run verification of completed items (tests, evidence still valid) | the v2 stub becomes real |
+| `cleanup` | `speky cleanup` (`--json`, dry-run default) | |
+| `backlog` | `speky task` (tasks and deferred items in one list) · `speky backlog` = deferred view | |
+| `import`, `import-status`, `reconcile` | `speky import <path>` (register sources + manifest) · `speky import status` · **speky-import** skill (docs → specs/tasks/knowledge/ADRs; reconcile → findings/tasks) | |
+| `poc-import` | `speky import <path> --code` · **speky-import** (code mode: features, conflicts as findings, resume from manifest) | |
+| `sequence`, `infer-deps`, `mark-foundation`, `reset-deps`, `fix-circular-deps` | `speky deps add\|remove\|clear\|foundation\|cycles` · `speky order [--export]` · inference in **speky-plan** | |
+| `renumber` | **dropped**: IDs are references (decisions, links, commits, log); order lives in deps/priority (`speky order`) | owner agreed |
+| `decisions` (tech decisions) | `speky decide` / `speky adr` / `knowledge/tech.md` | |
+| `config` (IDEs, model, providers) | `speky setup <harness>` · `speky config get\|set` (speky.yaml) · `speky config --model/--providers` for `speky run` | |
+| `design` (init, import, analyze with vision, link, resolve, validate, status, sync) | `speky design add\|link\|status` (assets + links to items) · **speky-design** skill (agent analyses images, maintains the design-system doc, conflicts → findings, resolutions → decisions) | |
+| `phases` (create, start, complete, list, show, status, guide, suggest) | `speky phases` (same manifests; `deliverable`, `verify`, `check`) · guide = `speky context --phase` · suggest in **speky-plan** | |
+| `context` | `speky context <id>\|--phase <id>` | |
+| `test` (init, gen, run, coverage, status, e2e, link, gaps, recommend, tdd-red/green, triage, …) | `speky test init\|run\|status\|gaps\|coverage` (runner detection, results, requirement↔test links via evidence) · **speky-test** skill (write tests, e2e, TDD, triage failures → findings) | |
+| `epic`, `epics` | `speky epic add\|show\|list\|attach\|detach` (same manifests) | |
+| `host` mode | **dropped**: existed so an agent could answer v2's model prompts; in the new SPEKY the agent is native | |
+| `-y`, `--answer`, `--non-interactive` | not needed: every command is non-interactive | |
+
+**Decisions (owner, 2026-10-14):**
+- **Built-in runner:** `speky run` — a small, provider-agnostic agent loop inside SPEKY that runs the same
+  skills through the model router (API key or Claude subscription) with file and command tools, so SPEKY
+  also works without a coding agent. It is the only place SPEKY talks to a model or asks the user.
+- **Familiar names, one implementation each:** `speky spec "x"` = `speky new spec "x"`, `speky status`,
+  `speky phases`, `speky epic`, `speky test`, … Removed names print what replaces them.
+- **Dropped:** `renumber` (use `speky order`), host mode (the agent is native), sync's `codebase.md`
+  (knowledge topics instead).
+
+**Build order:** (1) foundation: phases on v2's manifests (real YAML), tasks in the backlog, handoff/
+checkpoint, knowledge, owner actions, refs, done checks, harness + prime/next; (2) one command surface for
+every row above; (3) skills speky-init, speky-import, speky-design, speky-test + updates; (4) `speky run`;
+(5) `speky migrate` for v2 data; (6) delete the v2 implementation, parity tests rewritten against the new
+commands; (7) retrofit aIDE, real-agent pilots, release.
+
 ## 8. Sources
 - Beads — https://github.com/steveyegge/beads (docs: https://beads.gascity.com/)
 - BMAD-METHOD — https://github.com/bmad-code-org/BMAD-METHOD (docs: https://docs.bmad-method.org/)

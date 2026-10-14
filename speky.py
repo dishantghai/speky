@@ -18796,7 +18796,7 @@ Generated: {datetime.now().isoformat()}
         try:
             content = manifest_file.read_text()
             # Simple YAML parser for our structured format
-            return self._parse_yaml(content)
+            return self._read_yaml_text(content)
         except Exception as e:
             Console.warning(f"Could not load phase {phase_id}: {e}")
             return None
@@ -18809,7 +18809,7 @@ Generated: {datetime.now().isoformat()}
         manifest_file = phase_dir / "manifest.yaml"
         
         try:
-            content = self._to_yaml(data)
+            content = self._dump_yaml(data)
             manifest_file.write_text(content)
             return True
         except Exception as e:
@@ -18869,7 +18869,7 @@ Generated: {datetime.now().isoformat()}
             manifest_file = phase_dir / "manifest.yaml"
             if manifest_file.exists():
                 try:
-                    data = self._parse_yaml(manifest_file.read_text())
+                    data = self._read_yaml_text(manifest_file.read_text())
                     data["_dir"] = phase_dir.name
                     phases.append(data)
                 except Exception:
@@ -18885,7 +18885,7 @@ Generated: {datetime.now().isoformat()}
             return None
         
         try:
-            return self._parse_yaml(roadmap_file.read_text())
+            return self._read_yaml_text(roadmap_file.read_text())
         except Exception:
             return None
     
@@ -18894,13 +18894,29 @@ Generated: {datetime.now().isoformat()}
         roadmap_file = self.context.phases_dir / "roadmap.yaml"
         
         try:
-            content = self._to_yaml(data)
+            content = self._dump_yaml(data)
             roadmap_file.write_text(content)
             return True
         except Exception as e:
             Console.error(f"Could not save roadmap: {e}")
             return False
     
+    def _read_yaml_text(self, content: str) -> dict:
+        """Phase and roadmap manifests: real YAML (shared with speky_core), falling back to the
+        hand-written parser for files older versions wrote that YAML can't read."""
+        from speky_core import yamlio
+        try:
+            data = yamlio.load(content)
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+        return self._parse_yaml(content)
+
+    def _dump_yaml(self, data: dict) -> str:
+        from speky_core import yamlio
+        return yamlio.dump(data)
+
     def _parse_yaml(self, content: str) -> dict:
         """Simple YAML parser for our structured format"""
         import re
@@ -20640,8 +20656,15 @@ V3_COMMAND_HELP = [
     ("verify", "[v3] Evidence-gated verification (every requirement + verify command)"),
     ("archive", "[v3] Merge a verified change into the living specs"),
     ("capabilities", "[v3] Living specs with requirement counts and problems"),
+    ("handoff", "[v3] End of session: log entry, state snapshot, test result (optional commit)"),
+    ("checkpoint", "[v3] Save the mechanical state (git, open work, tests); run by a PreCompact hook"),
+    ("phases", "Phases with deliverables as their gate: list, add, start, deliverable, verify, check, complete"),
+    ("task", "[v3] Lightweight tasks: add, start, done, defer, promote to story/spec"),
+    ("owner", "[v3] Actions only the owner can take: add, done, list"),
+    ("knowledge", "[v3] Project knowledge by topic: list, show, promote to ADR"),
+    ("refs", "[v3] Check references like adr:0021 or screen:RV-1 resolve"),
     ("decide", "[v3] Append to the decision log"),
-    ("remember", "[v3] Save a project fact for every agent session"),
+    ("remember", "[v3] Save a project fact under a knowledge topic"),
     ("adr", "[v3] Architecture decision records (new, list)"),
     ("term", "[v3] Add a glossary term"),
     ("gate", "[v3] Human / CI / PR gates that block an item"),
@@ -21064,13 +21087,8 @@ manifests use --from-project automatically.""")
     design_parser.add_argument("--spec", "-s", dest="spec_id", help="Link to spec ID")
     design_parser.add_argument("--analyze", "-a", action="store_true", help="Analyze after import")
     
-    # phases (Multi-Spec Coordination Layer)
-    phases_parser = subparsers.add_parser("phases", help="Manage project phases for multi-spec coordination")
-    phases_parser.add_argument("action", choices=["list", "show", "status", "start", "complete", "guide", "create", "suggest"],
-                               help="Action: list, show, status, start, complete, guide, create, suggest")
-    phases_parser.add_argument("phase_id", nargs="?", help="Phase ID (required for show, start, complete, guide)")
-    phases_parser.add_argument("--for-ai", action="store_true", help="Generate AI-optimized output (for guide action)")
-    
+    # phases: handled by speky_core (see V3_COMMAND_HELP)
+
     # context (AI context generation for phases)
     context_parser = subparsers.add_parser("context", help="Generate AI context for phase implementation")
     context_parser.add_argument("--phase", "-p", help="Phase ID (uses current phase if not specified)")
@@ -21260,8 +21278,6 @@ manifests use --from-project automatically.""")
                 spec_id=args.spec_id,
                 analyze=args.analyze
             )
-        elif args.command == "phases":
-            success = speky.cmd_phases(args.action, phase_id=args.phase_id, for_ai=args.for_ai)
         elif args.command == "host":
             success = speky.cmd_host(args.action, request_id=args.request_id, file=args.file)
         elif args.command == "context":

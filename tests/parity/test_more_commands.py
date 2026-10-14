@@ -75,8 +75,10 @@ def test_phases_lifecycle(ready_project):
     assert run("phases", "create", "phase-1") == 0
     assert speky_path(ready_project, "phases", "phase-1").is_dir()
     for argv in (["phases", "show", "phase-1"], ["phases", "status"], ["phases", "list"],
-                 ["phases", "start", "phase-1"], ["phases", "guide", "phase-1"], ["context"]):
+                 ["phases", "start", "phase-1"], ["context"]):
         assert run(*argv) == 0, argv
+    # v3: the phase guide is the context packet, not a separate command
+    assert run("phases", "guide", "phase-1") == 1
 
 
 def test_decisions_and_backlog(ready_project):
