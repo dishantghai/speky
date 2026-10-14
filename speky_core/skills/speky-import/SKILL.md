@@ -14,7 +14,7 @@ description: Use when the user brings external material into a SPEKY project —
 3. **Create, smallest form that fits:**
    - a capability that needs agreement → `speky spec "<title>"`, written with the speky-propose skill;
      keep the source's wording for requirements where it is precise;
-   - small, clear work → `speky task add "..."`;
+   - small work that changes no behaviour → `speky task add "..." --kind fix|chore|measure` (behaviour → a story);
    - durable facts → `speky remember "..." --topic <topic>`; decisions → `speky adr new` / `speky decide`;
    - questions only the owner can answer → `speky owner add "..."`.
    For prototype code: describe what it does today, mark what is worth keeping, and record conflicts

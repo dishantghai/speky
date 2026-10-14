@@ -63,7 +63,7 @@ the commands to run and when the action is done. Work is sized first:
 | Size | Use |
 |---|---|
 | Quick, clear fix | Just do it, then run the tests. |
-| Small planned work | A task: `speky task add "…"`, then `speky task done W1 --verify`. |
+| Small work, no behaviour change | A task: `speky task add "…" --kind fix|chore|measure`, then `speky task done W1 --verify`. |
 | Changes behaviour | A story or spec: `speky story "…"` / `speky spec "…"`. |
 
 A change goes through:
@@ -135,7 +135,7 @@ speky phases deliverable phase-1 "Walkthrough test passes" --run "pnpm test:e2e"
 speky phases start phase-1
 speky phases check phase-1                     # runs deliverable commands; others need evidence
 speky phases complete phase-1                  # refused while deliverables or tasks are open
-speky task add "Wire SSE" --phase phase-1 --refs adr:0021
+speky task add --for 001 "Wire SSE" --closes R1 --check "pytest -q tests/test_sse.py"   # a task in 001's plan
 speky epic add "Checkout"                      # stories that share docs and context
 speky deps add 003 001                         # 003 depends on 001; `speky order [--export]` for the order
 ```

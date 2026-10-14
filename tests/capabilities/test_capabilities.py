@@ -120,7 +120,9 @@ def test_cleanup_moves_clutter_but_never_speky_files(project):
 
 def test_backlog_shows_deferred_not_tasks(project):
     (project.dir / "backlog.json").write_text(json.dumps([{"name": "old drift", "status": "pending"}]))
-    cli("task", "add", "a task")
+    from speky_core import phases
+    phases.add(project, "P", "p1")
+    cli("task", "add", "a task", "--kind", "chore", "--phase", "p1")
     out = cli("backlog")
     assert [d["name"] for d in out["deferred"]] == ["old drift"]
 

@@ -22,12 +22,16 @@ Then ask `speky next --json` and follow it. After compaction, ask again — the 
 | `plan` | speky-plan |
 | `start`, `implement` | speky-implement (+ speky-test for tests) |
 | `archive` | speky-verify |
-| `task` | do the task (size it first; if it changes behaviour, `speky task promote W<n>` — keeps labels and refs); follow `also_skills` if listed |
+| `task` | standalone small work (fix/chore/measure): do it, `speky task done W<n> --verify`; if it changes behaviour, `speky task promote W<n>` |
+| `classify` | give each loose task a spec/story (`promote`, `attach … --closes`) or a kind (`speky task kind`) |
 | `gate`, `phase` | check the phase deliverables (`speky phases check`), then `speky phases complete` |
 | `resolve_gate` | stop and ask the owner — never decide a human gate yourself |
 | `blocked` | work on what it waits for (`speky ready --json`) |
 | `idle` | ask the owner what's next; offer the deferred backlog (`speky backlog`) |
 
+Behaviour changes always go through a spec or story; its tasks are its plan (`speky task add --for <id>
+--closes R1`). Standalone tasks only for small work (`--kind fix|chore|measure`) or a recorded `--exception`, and
+always in a phase or an epic.
 Every non-code artifact has one home (`speky layout`); never invent another place. Default views are
 summaries (`--all` for everything); finished history is in `.speky/archive/` — `speky history <words>`.
 Nothing lives only in the chat. Before you end a turn: owner actions and recommendations needing their
@@ -42,7 +46,7 @@ system → speky-design. Old SPEKY v2 project or hand-kept notes → speky-migra
 | Size | When | Do |
 |---|---|---|
 | quick | the request says everything (typo, config value, one obvious line) | do it, run the tests, report — no item |
-| task | small, clear, no new behaviour to agree on | `speky task add "..."` → `start` → `done` |
+| task | small work, no behaviour change (fix, chore, measure) | `speky task add "..." --kind chore` → `start` → `done --verify` |
 | story | one behaviour, one session | `speky story "<title>" --type feature\|bug\|enhancement\|tech_debt\|spike` |
 | spec | new or changed behaviour that needs agreement | `speky spec "<title>"` |
 | epic/phase | several shippable parts | stories in an epic (`speky epic add`), or a phase with deliverables |
@@ -52,7 +56,7 @@ A bug: find the root cause before proposing a fix; after three failed fixes, que
 ## While working — write things down as they happen (compaction can come any time)
 - Learned something non-obvious? `speky remember "..." --topic <topic>` now, not at the end.
 - Decision: `speky decide "<what> — <why>" --ref <id>`; lasting ones `speky adr new "<title>"`.
-- Found other work: `speky task add "..."` or `speky story "..." --discovered-from <id>` — never grow scope silently.
+- Found other work: behaviour → `speky story "..." --discovered-from <id>`; small → `speky task add "..." --kind fix|chore|measure`; part of this change → `speky task add --for <id> --closes R…` — never grow scope silently.
 - Something only the owner can do (accounts, money, people, judgement): `speky owner add "..."`.
 - No completion claims without fresh evidence (`speky verify <id>`).
 - Never edit `status.json`, `findings.json`, `evidence.json`, `backlog.json` or phase manifests by hand.

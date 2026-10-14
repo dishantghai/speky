@@ -10,10 +10,13 @@ description: Use when `speky next` says start or implement, or when implementing
    UI changes: build what the designs cited in `## Design` show, in every state, with the design
    system's tokens and components (`speky next` lists the files). A difference you need is a
    decision for the owner, not a silent change; done checks may ask for screenshots and a review.
-2. Work task by task from plan.md (or the requirements for small items). Write the test first when
+2. Work the plan's tasks in order (`speky next` names the next one): `speky task start W<n>`, do it,
+   `speky task done W<n> --verify` (runs the task's check; when the last task closing a requirement
+   passes, SPEKY records that requirement's evidence). Write the test first when
    the project has tests; for test-first work record the proof with `speky test red|green`
    (speky-test skill).
-3. Scope stays fixed. Work you discover goes into a new item:
+3. Scope stays fixed. Work this change needs → another task of its plan (`speky task add --for <id>
+   --closes …`). Other work you discover goes into a new item:
    `speky new story "<title>" --type bug|feature|tech_debt --discovered-from <id>`.
 4. Ambiguity mid-task: decide, and record the ruling —
    `speky decide "<what> — <why> — <cost if wrong>" --type decision --ref <id>`. Stop and ask only

@@ -22,7 +22,7 @@ stack, test command). Your job is the judgement around it.
 5. **Plan the first phase:** `speky phases add "<name>"`, deliverables that prove it
    (`speky phases deliverable <phase> "<what>" [--run "<cmd>"]`), then `speky phases start <phase>`.
 6. **First work items:** one spec per capability that needs agreement (`speky spec "<title>"`,
-   then the speky-propose skill), small things as tasks (`speky task add "..."`). Link dependencies
+   then the speky-propose skill), small no-behaviour things as tasks (`speky task add "..." --kind chore|fix|measure`). Link dependencies
    with `speky deps add`.
 7. **UI projects:** the design system goes in `.speky/design/system.md` (write it from the existing UI
    if there is none), screens in `.speky/design/screens/<id>/` (`speky design screen add`). Run

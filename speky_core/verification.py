@@ -106,6 +106,9 @@ def verify(project: Project, item: Item, run: str = None) -> dict:
 
     checks = run_done_checks(project, item, evidence)
     missing += [f"done check {c['name']} ({c['label']}): {c['detail']}" for c in checks if not c["passed"]]
+    from .tasks import Tasks
+    missing += [f"plan task {t['id']} is {t['status']}: {t['text'][:60]}" for t in Tasks(project).for_item(item.id)
+                if t["status"] in ("todo", "doing")]
 
     passed = not missing
     tree = vcs.tree_fingerprint(project.root)

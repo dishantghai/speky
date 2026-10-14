@@ -202,15 +202,33 @@ def _item_action(project: Project, item: Item) -> dict:
                                  f"speky finding add {item.id} --severity major --text \"...\""],
                        done_when=f"`speky check {item.id}` reports converged")
 
+    from .tasks import Tasks, PLAN_BEGIN
+    tasks_ = Tasks(project)
+    cov = tasks_.coverage(item)
+    if status in ("draft", "ready"):
+        size = item.load_status().get("size", "change")
+        plan_md = item.path / "plan.md"
+        written = plan_md.exists() and len([l for l in plan_md.read_text().split(PLAN_BEGIN)[0].splitlines()
+                                            if l.strip() and not l.startswith("#")]) >= 2
+        need_plan = size not in ("quick", "small") and not written
+        if size != "quick" and (need_plan or cov["uncovered"]):
+            what = []
+            if need_plan:
+                what.append("write plan.md: the decisions the implementer cannot make alone (files, interfaces, "
+                            "values from the spec); no hour estimates")
+            if cov["uncovered"]:
+                what.append("add the plan's tasks, each closing requirements: `speky task add --for "
+                            f"{item.id} \"<task>\" --closes R1[,R2] --check \"<command that proves it>\"` — still "
+                            f"uncovered: {', '.join(cov['uncovered'])}")
+            return _action("plan", item, ("No plan yet." if need_plan else
+                                          f"{len(cov['uncovered'])} requirement(s) not closed by any task."),
+                           "Plan the change: " + "; ".join(what) + ". The first task is the thinnest path through "
+                           "every layer.",
+                           skill="speky-plan", read=[doc], commands=[f"speky task add --for {item.id} \"…\" --closes R1 "
+                                                                     "--check \"…\"", f"speky start {item.id}"],
+                           done_when="plan.md is written and every requirement is closed by a task")
     if status == "draft":
         size = item.load_status().get("size", "change")
-        if size not in ("quick", "small") and not (item.path / "plan.md").exists():
-            return _action("plan", item, "Validated; no plan yet.",
-                           "Write plan.md: the decisions the implementer cannot make alone (files, "
-                           "interfaces, values from the spec), agent-sized tasks, and the command that "
-                           "verifies each. No hour estimates.",
-                           skill="speky-plan", read=[doc], commands=[f"speky start {item.id}"],
-                           done_when=f"{item.path.relative_to(project.root)}/plan.md exists")
         return _action("start", item, "Validated; " + ("planned." if (item.path / "plan.md").exists()
                                                          else f"no plan needed ({size})."),
                        "Record the starting commit, then implement.",
@@ -222,6 +240,18 @@ def _item_action(project: Project, item: Item) -> dict:
                        skill="speky-implement", commands=[f"speky start {item.id}"],
                        done_when="status is in_progress")
 
+    if status == "in_progress" and cov["open"]:
+        nxt = next((t for t in tasks_.for_item(item.id) if t["status"] == "doing"), None) or \
+            next(t for t in tasks_.for_item(item.id) if t["status"] == "todo")
+        return _action("implement", item, f"Next task of {item.id}'s plan: {nxt['id']} {nxt['text'][:100]} "
+                       f"(closes {', '.join(nxt['closes'])}).",
+                       f"Do {nxt['id']}, then `speky task done {nxt['id']} --verify` (runs "
+                       + (f"`{nxt['check']}`" if nxt.get("check") else "the verify command") +
+                       "; when the last task closing a requirement passes, its evidence is recorded). Work you "
+                       "discover becomes another task of this plan or a new item.",
+                       skill="speky-implement", read=[doc] + ([item.path / "plan.md"] if (item.path / "plan.md").exists() else []),
+                       commands=[f"speky task start {nxt['id']}", f"speky task done {nxt['id']} --verify"],
+                       done_when=f"{nxt['id']} is done", task=nxt["id"])
     if status == "in_progress":
         ver = item.load_status().get("verification") or {}
         why = ("Implementation in progress." if not ver else
@@ -291,9 +321,10 @@ def _roadmap_action(project: Project) -> Optional[dict]:
     from . import phases as phases_mod
     from .tasks import Tasks
     tasks = Tasks(project)
-    task_help = ("Size it first: if it changes behaviour, promote it (`speky task promote {id} --to story`) "
-                 "and follow the change workflow; otherwise do it, then `speky task done {id} --verify` (runs the tests). "
-                 "Work you discover goes in as a new task (`speky task add`).")
+    task_help = ("It is standalone small work (no spec or story). If it turns out to change behaviour, promote it "
+                 "(`speky task promote {id} --to story`) and follow the change workflow; otherwise do it, then "
+                 "`speky task done {id} --verify`. Discovered behaviour work gets a spec or story (`speky new story`); "
+                 "small work a task with `--kind fix|chore|measure`.")
     from . import playbooks
 
     def with_playbook(action: dict, t: dict) -> dict:
@@ -313,7 +344,19 @@ def _roadmap_action(project: Project) -> Optional[dict]:
             action["read"] = action["read"] + ([system] if system else []) + [s["path"] for s in live]
         return action
 
-    doing = [t for t in tasks.list(status="doing") if not t.get("promoted_to")]
+    loose = tasks.unclassified()
+    if loose:
+        t = loose[0]
+        return _action("classify", None, f"{len(loose)} open task(s) break the task rules (made before them): outside "
+                       f"a spec/story plan without a kind, or in no phase or epic — e.g. {t['id']} {t['text'][:80]}.",
+                       "For each: if it changes behaviour, give it a spec or story — `speky task promote "
+                       f"{t['id']}`, or `speky task attach {t['id']} <spec|story> --closes R1` into an existing plan; "
+                       f"otherwise `speky task kind {t['id']} --kind fix|chore|measure`, or `--exception \"<why>\"` "
+                       "(recorded and shown to the owner); and a standalone task belongs to a phase or an epic: "
+                       f"`speky task attach {t['id']} --phase <id>|--epic <id>`.",
+                       skill="speky", commands=[f"speky task promote {t['id']}", f"speky task kind {t['id']} --kind chore"],
+                       done_when="no open task is outside a plan without a kind", task=t["id"])
+    doing = [t for t in tasks.list(status="doing") if not t.get("promoted_to") and not t.get("for")]
     if doing:
         t = doing[0]
         return with_playbook(_action("task", None, f"Task {t['id']} is in progress: {t['text'][:120]}",
@@ -321,7 +364,8 @@ def _roadmap_action(project: Project) -> Optional[dict]:
                        commands=[f"speky task done {t['id']} --verify", f"speky task promote {t['id']} --to story"],
                        done_when=f"{t['id']} is done or promoted", task=t["id"]), t)
     phase = phases_mod.current(project)
-    todo = [t for t in tasks.list(status="todo") if not phase or t.get("phase") in (phase.id, None)]
+    todo = [t for t in tasks.list(status="todo") if (not phase or t.get("phase") in (phase.id, None))
+            and not t.get("for")]
     if todo:
         t = todo[0]
         where = f" in {phase.id}" if phase and t.get("phase") == phase.id else ""
@@ -472,6 +516,17 @@ def prime(project: Project, limit_items: int = 5) -> str:
     if st["open_gates"]:
         lines.append("- Open gates: " + ", ".join(f"{g['item']}/{g['id']} {g['reason']}"
                                                   for g in st["open_gates"]))
+    from .tasks import Tasks
+    if (project.dir / "backlog.json").exists():
+        t_ = Tasks(project)
+        exc = [t for t in t_.exceptions() if t["status"] in ("todo", "doing")]
+        if exc:
+            lines.append("- Work running without a spec or story (exceptions the owner should see): " + "; ".join(
+                f"{t['id']} {t['text'][:60]} — {t['exception'][:80]}" for t in exc[:5]))
+        loose = t_.unclassified()
+        if loose:
+            lines.append(f"- {len(loose)} open task(s) are outside any spec/story plan and declare no kind: give them "
+                         "a spec or story, or a kind (`speky next` walks you through it).")
     owner = OwnerActions(project).open_items()
     if owner:
         lines.append(f"- Waiting on the owner ({len(owner)} open, `.speky/owner.md`): "

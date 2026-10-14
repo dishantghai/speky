@@ -21,5 +21,5 @@ description: Use when tests are written, run, generated or debugged in a SPEKY p
    - outdated — the requirement changed on purpose → update the test and say which change;
    - flaky — passes and fails without changes → quarantine with a task, never delete silently;
    - expected (TDD red) — leave it.
-   Record anything you can't fix now as a task (`speky task add "..."`) or a finding on the item.
+   Record anything you can't fix now as a finding on the item, a bug story (`speky new story "…" --type bug`), or a small `speky task add "..." --kind fix`.
 6. Never claim tests pass without fresh output from this session.
