@@ -557,3 +557,33 @@ def test_reference_screens_need_no_new_approval(project, tmp_path):
                 "## Design\nNo new design needed: behaviour fix; tab bar as in screen:browser-tab-bar.\n\n## Requirements"))
     st = uxdesign.state(project, item)
     assert st["cited"] == [".speky/design/screens/browser-tab-bar"] and st["unapproved"] == []
+
+
+def test_grouped_screens_and_multi_screen_folders(project, tmp_path):
+    from speky_core import design
+    root = project.dir / "design" / "screens"
+    held = root / "run-view" / "v2-E" / "held"
+    held.mkdir(parents=True)
+    (held / "render@2x.png").write_bytes(b"png")
+    (held / "screen.yaml").write_text("id: RV-E2-held\ntitle: Held before Think\nstatus: approved\n")
+    build = root / "run-view" / "build"
+    build.mkdir(parents=True)
+    for n in ("empty.png", "empty-light.png"):
+        (build / n).write_bytes(b"png")
+    (build / "screens.yaml").write_text(
+        "- id: RV-B1-empty\n  title: Before the first run\n  files: [empty.png]\n  status: superseded\n"
+        "  superseded_by: RV-B2-empty\n- id: RV-B1-empty-light\n  files: [empty-light.png]\n")
+    ids = {s["id"]: s for s in design.screens(project)}
+    assert set(ids) == {"RV-E2-held", "RV-B1-empty", "RV-B1-empty-light"}
+    assert ids["RV-E2-held"]["group"] == "run-view/v2-E" and ids["RV-B1-empty"]["path"].endswith("build/empty.png")
+    assert refs.scan(project)["valid"]
+    cli("design", "screen", "approve", "RV-B1-empty-light", "--by", "owner")
+    assert "status: approved" in (build / "screens.yaml").read_text()
+    out = cli("design", "screen", "add", "RV-E3-held", str(held / "render@2x.png"), "--group", "run-view/v3")
+    assert out["path"] == ".speky/design/screens/run-view/v3/RV-E3-held"
+    catalogue = (project.dir / "design" / "screens.md").read_text()
+    assert "## run-view/build" in catalogue and "`RV-B1-empty`" in catalogue
+    # adr: is built in
+    (project.dir / "adr").mkdir()
+    (project.dir / "adr" / "0021-clean.md").write_text("# ADR-0021\n\nStatus: Accepted\n")
+    assert refs.locate(project, "adr", "0021", {"builtin": "adr"}) == ".speky/adr/0021-clean.md"

@@ -423,6 +423,7 @@ def _parser() -> argparse.ArgumentParser:
     s_add.add_argument("--for", dest="item", default=None)
     s_add.add_argument("--source", default="", help="tool or link it came from (e.g. a Stitch project URL)")
     s_add.add_argument("--move", action="store_true", help="move the files instead of copying them")
+    s_add.add_argument("--group", default="", help="group folder under the screens root, e.g. run-view/v3")
     s_add.add_argument("--json", action="store_true")
     s_list = ssub.add_parser("list")
     s_list.add_argument("--json", action="store_true")
@@ -944,14 +945,14 @@ def run(argv: List[str]) -> dict:
             sa = args.screen_action
             if sa == "add":
                 return design_mod.screen_add(project, args.id, args.files, args.title, args.kind, args.state,
-                                             args.item, args.source, args.move)
+                                             args.item, args.source, args.move, args.group)
             if sa == "approve":
                 return design_mod.approve(project, args.id, args.by, args.note)
             if sa == "supersede":
                 return design_mod.supersede(project, args.id, args.new)
             if sa == "review":
                 return design_mod.review(project, args.id, args.file, args.result)
-            return {"screens": design_mod.screens(project)}
+            return {"screens": [{k: v for k, v in s.items() if k != "_source"} for s in design_mod.screens(project)]}
         if action == "analysis":
             return design_mod.record_analysis(project, args.file, args.analysis)
         if action == "conflict":

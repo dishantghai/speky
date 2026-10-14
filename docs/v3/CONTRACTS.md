@@ -45,6 +45,7 @@ covered: where code goes is the project's business. Only the rows marked *overri
 | design_system | `.speky/design/system.md` | the design-system document | `paths.design_system` |
 | design_screens | `.speky/design/screens/<screen-id>/` | one folder per screen (images, HTML, `screen.yaml`); catalogue `.speky/design/screens.md` | `paths.design_screens` |
 | design_reviews | `.speky/design/reviews/` | design and UX reviews `<date>-<screen>.md` | `paths.design_reviews` |
+| design_docs | `.speky/design/` (`brief.md`, `narratives/`, `presentations/`, `feedback/`, guides) | design briefs, narratives, tool guides, pages shown to the owner, user feedback | — |
 | imports | `.speky/imports/<name>/` | imported documents and prototype code | — |
 | context | `.speky/context/` | v2 project documents (product, architecture, tech decisions) | — |
 | research | `.speky/research/` | research not tied to one change (per change: `research.md`) | `paths.research` |
@@ -58,8 +59,12 @@ Also: `.speky/design/icons/`, `.speky/design/manifest.json` (technology, design 
 review, approved_by, supersedes / superseded_by`. `speky design screen add <id> <files> [--for <item>]
 [--state …] [--move]`, `… approve <id> --by <owner>`, `… supersede <id> --by <new-id>`,
 `… review <id> --file <review.md> --result pass|fail`, `… list`. An approved screen is never overwritten:
-a new iteration gets a new ID. With `paths.design_screens` set, sub-folders with a `screen.yaml` and image
-files directly in the folder are screens (ID = slug of the file name).
+a new iteration gets a new ID. Screens can be grouped: a folder with `screen.yaml` is a screen at any depth
+(`screens/run-view/v2-E/held/`), and a `screens.yaml` in a folder lists several screens kept as single
+files there (`[{id, title, files: [empty.png], status, …}]`); `speky design screen add … --group run-view/v3`.
+In the default root a top-level folder without metadata is a screen too (ID = folder name). With
+`paths.design_screens` set, design files lying directly in it are screens (ID = slug of the file name).
+`adr:<NNNN>` and `screen:<id>` are built-in references (`speky refs`).
 
 ## 2. Item state (`status.json`)
 

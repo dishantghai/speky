@@ -29,6 +29,8 @@ ARTIFACTS = [
     ("design_system", ".speky/design/system.md", "the design-system document (tokens, type, components)", True),
     ("design_screens", ".speky/design/screens/<screen-id>/", "screen designs, one folder per screen ID", True),
     ("design_reviews", ".speky/design/reviews/", "design and UX reviews", True),
+    ("design_docs", ".speky/design/<brief.md|narratives/|presentations/|feedback/|…>",
+     "design briefs, guides, narratives, presentations shown to the owner, user feedback", False),
     ("imports", ".speky/imports/<name>/", "imported documents and prototype code (with manifest)", False),
     ("context", ".speky/context/", "v2 project documents (product, architecture, tech decisions); new facts go "
                                     "to knowledge topics and ADRs", False),

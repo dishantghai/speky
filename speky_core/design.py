@@ -86,73 +86,135 @@ def init(project: Project, technology: str = "") -> dict:
 
 
 # ---------------------------------------------------------------------------- screens
-def _load_meta(folder: Path) -> dict:
-    path = folder / SCREEN_META
+SCREENS_LIST = "screens.yaml"  # several screens kept as single files in one folder
+
+
+def _load_yaml(path: Path):
     if path.exists():
-        data = yamlio.load(path.read_text())
-        return data if isinstance(data, dict) else {}
-    return {}
+        return yamlio.load(path.read_text())
+    return None
+
+
+def _load_meta(folder: Path) -> dict:
+    data = _load_yaml(folder / SCREEN_META)
+    return data if isinstance(data, dict) else {}
 
 
 def _save_meta(folder: Path, meta: dict) -> None:
     (folder / SCREEN_META).write_text(yamlio.dump(meta))
 
 
+def _row(project: Project, meta: dict, sid: str, files: List[Path], path: Path, group: str, source: dict) -> Dict:
+    return {"id": sid, "title": meta.get("title", sid), "status": meta.get("status", "draft"),
+            "kind": meta.get("kind", "hifi"), "states": meta.get("states") or [],
+            "items": [str(i) for i in meta.get("items") or []],
+            "files": [_rel(project, f) for f in files], "path": _rel(project, path), "group": group,
+            "review": meta.get("review"), "superseded_by": meta.get("superseded_by"), "_source": source}
+
+
+def _design_files(folder: Path) -> List[Path]:
+    return [f for f in sorted(folder.rglob("*")) if f.is_file() and f.suffix.lower() in DESIGN_EXT]
+
+
 def screens(project: Project) -> List[Dict]:
-    """Every screen in the design locations: {id, title, status, kind, states, items, files, path}."""
+    """Every screen: {id, title, status, kind, states, items, files, path, group, review, superseded_by}.
+
+    Under a screens root: a folder with `screen.yaml` is a screen (at any depth, so screens can be grouped,
+    e.g. `run-view/v2-E/held/`); a `screens.yaml` lists several screens kept as single files in its folder;
+    in the default root a top-level folder without metadata is a screen too (ID = folder name); in an
+    override root, design files lying directly in it are screens (ID = slug of the file name)."""
     out, seen = [], set()
     default = project.root / layout.DEFAULTS["design_screens"].split("<")[0].rstrip("/")
+
+    def add_row(row):
+        if row["id"] not in seen:
+            seen.add(row["id"])
+            out.append(row)
+
     for root in layout.paths(project, "design_screens"):
         if not root.is_dir():
             continue
-        for entry in sorted(root.iterdir()):
-            if entry.is_dir() and (root == default or (entry / SCREEN_META).exists()):
-                meta = _load_meta(entry)
-                sid = str(meta.get("id") or entry.name)
-                files = [_rel(project, f) for f in sorted(entry.rglob("*"))
-                         if f.is_file() and f.suffix.lower() in DESIGN_EXT]
-                out.append({"id": sid, "title": meta.get("title", sid), "status": meta.get("status", "draft"),
-                            "kind": meta.get("kind", "hifi"), "states": meta.get("states") or [],
-                            "items": [str(i) for i in meta.get("items") or []], "files": files,
-                            "path": _rel(project, entry), "review": meta.get("review"),
-                            "superseded_by": meta.get("superseded_by")})
-                seen.add(sid)
-            elif entry.is_file() and entry.suffix.lower() in DESIGN_EXT:
-                sid = slugify(entry.stem)
-                if sid not in seen:
-                    out.append({"id": sid, "title": entry.stem, "status": None, "kind": None, "states": [],
-                                "items": [], "files": [_rel(project, entry)], "path": _rel(project, entry),
-                                "review": None, "superseded_by": None})
-                    seen.add(sid)
+        claimed = set()
+
+        def walk(folder: Path):
+            group = str(folder.relative_to(root)) if folder != root else ""
+            listed = _load_yaml(folder / SCREENS_LIST)
+            for i, entry in enumerate(listed if isinstance(listed, list) else []):
+                if isinstance(entry, dict) and entry.get("id"):
+                    files = [folder / f for f in entry.get("files") or []]
+                    claimed.update(f.resolve() for f in files)
+                    add_row(_row(project, entry, str(entry["id"]), files, files[0] if len(files) == 1 else folder,
+                                 group, {"kind": "list", "file": folder / SCREENS_LIST, "index": i}))
+            for sub in sorted(p for p in folder.iterdir() if p.is_dir()):
+                if (sub / SCREEN_META).exists():
+                    meta = _load_meta(sub)
+                    add_row(_row(project, meta, str(meta.get("id") or sub.name), _design_files(sub), sub,
+                                 group, {"kind": "dir", "folder": sub}))
+                else:
+                    has_meta = any(sub.rglob(SCREEN_META)) or any(sub.rglob(SCREENS_LIST))
+                    if root == default and folder == root and not has_meta:
+                        add_row(_row(project, {}, sub.name, _design_files(sub), sub, group,
+                                     {"kind": "dir", "folder": sub}))
+                    elif has_meta:
+                        walk(sub)
+
+        walk(root)
+        if root != default:
+            for f in sorted(root.iterdir()):
+                if f.is_file() and f.suffix.lower() in DESIGN_EXT and f.resolve() not in claimed:
+                    add_row({**_row(project, {}, slugify(f.stem), [f], f, "", {"kind": "file"}),
+                             "title": f.stem, "status": None, "kind": None})
     return out
 
 
 def find_screen(project: Project, sid: str) -> Optional[Dict]:
-    for s in screens(project):
+    rows = screens(project)
+    for s in rows:
+        if s["id"] == sid:
+            return s
+    for s in rows:
         if s["id"].lower() == sid.lower() or slugify(s["id"]) == slugify(sid):
             return s
     return None
 
 
-def _screen_folder(project: Project, sid: str) -> Path:
-    s = find_screen(project, sid)
+def _record(project: Project, sid: str):
+    """(screen, meta, save) for a screen that has metadata; save(meta) writes it back."""
+    s = find_screen(project, sid) or find_screen(project, Path(sid).stem)
     if not s:
         raise SpekyError("screen_not_found", f"No screen '{sid}'.", "Run `speky design screen list --json`.")
-    folder = project.root / s["path"]
-    if not folder.is_dir():
-        raise SpekyError("screen_is_a_file", f"Screen '{sid}' is a single file ({s['path']}) without metadata.",
-                         f"Import it: `speky design screen add {s['id']} \"{s['path']}\" --move`.")
-    return folder
+    src = s["_source"]
+    if src["kind"] == "dir":
+        folder = src["folder"]
+        meta = _load_meta(folder) or {"id": s["id"]}
+
+        def save(m):
+            _save_meta(folder, m)
+        return s, meta, save
+    if src["kind"] == "list":
+        listed = _load_yaml(src["file"])
+
+        def save(m):
+            listed[src["index"]] = m
+            src["file"].write_text(yamlio.dump(listed))
+        return s, dict(listed[src["index"]]), save
+    raise SpekyError("screen_is_a_file", f"Screen '{s['id']}' is a single file ({s['path']}) without metadata.",
+                     f"Import it: `speky design screen add {s['id']} \"{s['path']}\" --move`.")
 
 
 def screen_add(project: Project, sid: str, files: List[str], title: str = "", kind: str = "hifi",
-               states: List[str] = None, item: str = None, source: str = "", move: bool = False) -> dict:
+               states: List[str] = None, item: str = None, source: str = "", move: bool = False,
+               group: str = "") -> dict:
     if not ID_RE.match(sid):
         raise SpekyError("bad_screen_id", f"'{sid}' is not a valid screen ID.",
                          "Use letters, digits, '.', '_' and '-', e.g. layers-editor-main or RV-E3-held.")
     if kind not in SCREEN_KINDS:
         raise SpekyError("bad_screen_kind", f"Kind must be one of {', '.join(SCREEN_KINDS)}.")
-    folder = screens_root(project) / sid
+    existing_row = find_screen(project, sid)
+    if existing_row and existing_row["id"] == sid and existing_row["_source"]["kind"] == "dir":
+        folder = existing_row["_source"]["folder"]
+    else:
+        folder = screens_root(project) / group / sid if group else screens_root(project) / sid
     existing = _load_meta(folder)
     if existing.get("status") == "approved" and files:
         raise SpekyError("screen_approved", f"Screen {sid} is approved; a new iteration gets a new ID.",
@@ -194,12 +256,11 @@ def link(project: Project, sid: str, item_ref: str) -> dict:
     s = find_screen(project, sid) or find_screen(project, Path(sid).stem)
     if not s:
         raise SpekyError("screen_not_found", f"No screen '{sid}'.", "Run `speky design screen list --json`.")
-    folder = project.root / s["path"]
-    if folder.is_dir():
-        meta = _load_meta(folder) or {"id": s["id"]}
+    if s["_source"]["kind"] != "file":
+        _, meta, save = _record(project, s["id"])
         if item.id not in (meta.get("items") or []):
             meta["items"] = (meta.get("items") or []) + [item.id]
-        _save_meta(folder, meta)
+        save(meta)
     uxdesign.cite_screen(project, item, s["id"])
     render_catalogue(project)
     return {"screen": s["id"], "item": item.id}
@@ -207,25 +268,23 @@ def link(project: Project, sid: str, item_ref: str) -> dict:
 
 def approve(project: Project, sid: str, by: str, note: str = "") -> dict:
     from . import journal
-    folder = _screen_folder(project, sid)
-    meta = _load_meta(folder)
+    s, meta, save = _record(project, sid)
     meta.update(status="approved", approved_by=by, approved_at=now())
-    _save_meta(folder, meta)
-    journal.decide(project, f"Design {meta.get('id', sid)} approved by {by}" + (f": {note}" if note else ""),
+    save(meta)
+    journal.decide(project, f"Design {s['id']} approved by {by}" + (f": {note}" if note else ""),
                    "decision", (meta.get("items") or [None])[0])
     render_catalogue(project)
-    return {"screen": meta.get("id", sid), "status": "approved"}
+    return {"screen": s["id"], "status": "approved"}
 
 
 def supersede(project: Project, old: str, new: str) -> dict:
-    old_folder, new_folder = _screen_folder(project, old), _screen_folder(project, new)
-    meta = _load_meta(old_folder)
-    meta.update(status="superseded", superseded_by=new)
-    _save_meta(old_folder, meta)
-    nmeta = _load_meta(new_folder)
+    _, ometa, osave = _record(project, old)
+    _, nmeta, nsave = _record(project, new)
+    ometa.update(status="superseded", superseded_by=new)
+    osave(ometa)
     nmeta["supersedes"] = old
-    nmeta["items"] = sorted(set((nmeta.get("items") or []) + (meta.get("items") or [])))
-    _save_meta(new_folder, nmeta)
+    nmeta["items"] = sorted(set((nmeta.get("items") or []) + (ometa.get("items") or [])))
+    nsave(nmeta)
     render_catalogue(project)
     return {"superseded": old, "by": new}
 
@@ -233,53 +292,61 @@ def supersede(project: Project, old: str, new: str) -> dict:
 def review(project: Project, sid: str, review_file: str, result: str) -> dict:
     if result not in ("pass", "fail"):
         raise SpekyError("bad_result", "Result is pass or fail.")
-    folder = _screen_folder(project, sid)
+    s, meta, save = _record(project, sid)
     src = Path(review_file)
     if not src.exists():
         raise SpekyError("source_not_found", f"{review_file} does not exist.")
     target_dir = reviews_dir(project)
     target_dir.mkdir(parents=True, exist_ok=True)
-    target = target_dir / f"{date.today().isoformat()}-{sid}.md"
+    target = target_dir / f"{date.today().isoformat()}-{s['id']}.md"
     if src.resolve() != target.resolve():
         shutil.copyfile(src, target)
-    meta = _load_meta(folder)
     meta["review"] = {"file": _rel(project, target), "result": result, "at": now()}
-    _save_meta(folder, meta)
+    save(meta)
     render_catalogue(project)
-    return {"screen": sid, "review": meta["review"]}
+    return {"screen": s["id"], "review": meta["review"]}
 
 
 def record_analysis(project: Project, sid: str, analysis_file: str) -> dict:
-    """The agent's analysis of a screen (tokens, layout, components), stored in its folder."""
-    s = find_screen(project, sid) or find_screen(project, Path(sid).stem)
-    if not s:
-        raise SpekyError("screen_not_found", f"No screen '{sid}'.", "Run `speky design screen list --json`.")
-    folder = _screen_folder(project, s["id"])
+    """The agent's analysis of a screen (tokens, layout, components), stored next to it."""
+    s, meta, save = _record(project, sid)
     src = Path(analysis_file)
     if not src.exists():
         raise SpekyError("source_not_found", f"{analysis_file} does not exist.")
-    shutil.copyfile(src, folder / "analysis.md")
-    meta = _load_meta(folder)
-    meta["analysis"] = "analysis.md"
-    _save_meta(folder, meta)
-    return {"screen": s["id"], "analysis": _rel(project, folder / "analysis.md")}
+    if s["_source"]["kind"] == "dir":
+        target = s["_source"]["folder"] / "analysis.md"
+        meta["analysis"] = "analysis.md"
+    else:
+        target = s["_source"]["file"].parent / f"{s['id']}.analysis.md"
+        meta["analysis"] = target.name
+    shutil.copyfile(src, target)
+    save(meta)
+    return {"screen": s["id"], "analysis": _rel(project, target)}
 
 
 def render_catalogue(project: Project) -> None:
-    """`.speky/design/screens.md`: every screen with its status, states, items and review."""
+    """`.speky/design/screens.md`: every screen by group, with status, states, items and review."""
     rows = screens(project)
     if not rows and not (design_dir(project) / "screens.md").exists():
         return
     lines = ["# Screens", "", "_Generated by SPEKY (`speky design screen …`). Cite a screen as `screen:<id>` in a "
-             "change's `## Design`. A new iteration gets a new ID; the old one is superseded._", "",
-             "| ID | Title | Status | States | Items | Review | Path |", "|---|---|---|---|---|---|---|"]
+             "change's `## Design`. A new iteration gets a new ID; the old one is superseded._", ""]
+    groups: Dict[str, List[Dict]] = {}
     for s in rows:
-        rev = f"{s['review']['result']} ({s['review']['file']})" if s.get("review") else ""
-        status_ = (s["status"] or "—") + (f" → {s['superseded_by']}" if s.get("superseded_by") else "")
-        lines.append(f"| `{s['id']}` | {s['title']} | {status_} | {', '.join(s['states'])} | "
-                     f"{', '.join(s['items'])} | {rev} | `{s['path']}` |")
+        groups.setdefault(s.get("group") or "", []).append(s)
+    for group in sorted(groups):
+        if group:
+            lines += [f"## {group}", ""]
+        lines += ["| ID | Title | Status | States | Items | Review | Path |", "|---|---|---|---|---|---|---|"]
+        for s in groups[group]:
+            rev = f"{s['review']['result']} ({s['review']['file']})" if isinstance(s.get("review"), dict) else \
+                (str(s["review"]) if s.get("review") else "")
+            status_ = (s["status"] or "—") + (f" → {s['superseded_by']}" if s.get("superseded_by") else "")
+            lines.append(f"| `{s['id']}` | {s['title']} | {status_} | {', '.join(s['states'])} | "
+                         f"{', '.join(s['items'])} | {rev} | `{s['path']}` |")
+        lines.append("")
     design_dir(project).mkdir(parents=True, exist_ok=True)
-    (design_dir(project) / "screens.md").write_text("\n".join(lines) + "\n")
+    (design_dir(project) / "screens.md").write_text("\n".join(lines).rstrip() + "\n")
 
 
 # ---------------------------------------------------------------------------- v2-style entry points
@@ -406,7 +473,7 @@ def status(project: Project) -> dict:
     return {"design_system": uxdesign.design_system(project),
             "screens_dir": uxdesign.screen_dirs(project),
             "reviews_dir": _rel(project, reviews_dir(project)),
-            "screens": [{k: s[k] for k in ("id", "title", "status", "items", "path")} for s in rows],
+            "screens": [{k: s[k] for k in ("id", "title", "status", "items", "path", "group")} for s in rows],
             "catalogues": catalogues,
             "playbooks": {k: v.get("skill") for k, v in playbook.items() if isinstance(v, dict)},
             "technology": data.get("technology"),

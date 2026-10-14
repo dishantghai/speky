@@ -16,10 +16,18 @@ from typing import Dict, List, Optional
 from .items import Project
 
 
+def _adr_files(project: Project, ref_id: str) -> list:
+    from . import journal
+    folder = journal.adr_dir(project)
+    num = ref_id.lstrip("ADR-").lstrip("adr-")
+    return sorted(folder.glob(f"{num.zfill(4)}-*.md")) if folder.is_dir() and num.isdigit() else []
+
+
 def _kinds(project: Project) -> Dict[str, dict]:
     kinds = dict(project.config.get("refs") or {})
     kinds.setdefault("item", {"builtin": "item"})
     kinds.setdefault("screen", {"builtin": "screen"})  # .speky/design/screens/<id>/ (or paths.design_screens)
+    kinds.setdefault("adr", {"builtin": "adr"})        # .speky/adr/<id>-*.md (or paths.adr_dir)
     return kinds
 
 
@@ -29,6 +37,8 @@ def resolve(project: Project, kind: str, ref_id: str, spec: dict) -> bool:
     if spec.get("builtin") == "screen":
         from . import design
         return design.find_screen(project, ref_id) is not None
+    if spec.get("builtin") == "adr":
+        return bool(_adr_files(project, ref_id))
     if "glob" in spec:
         return bool(globlib.glob(str(project.root / spec["glob"].replace("{id}", ref_id))))
     if "file" in spec:
@@ -47,6 +57,9 @@ def locate(project: Project, kind: str, ref_id: str, spec: dict) -> Optional[str
         from . import design
         s = design.find_screen(project, ref_id)
         return s["path"] if s else None
+    if spec.get("builtin") == "adr":
+        hits = _adr_files(project, ref_id)
+        return str(hits[0].relative_to(project.root)) if hits else None
     if "glob" in spec:
         hits = sorted(globlib.glob(str(project.root / spec["glob"].replace("{id}", ref_id))))
         return str(Path(hits[0]).relative_to(project.root)) if hits else None
