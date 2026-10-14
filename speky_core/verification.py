@@ -246,7 +246,8 @@ def capabilities_report(project: Project) -> List[dict]:
     for path in sorted(base.glob("*/spec.md")) if base.is_dir() else []:
         cap = path.parent.name
         text = path.read_text()
-        reqs = md.parse_requirements(text, md.CAP_REQ_RE)
+        parsed = md.parse_requirements(text, md.CAP_REQ_RE)
+        reqs = [r for r in parsed if r.id]  # living specs need <capability>-R<n> IDs
         problems = []
         if not re.match(r"^[a-z0-9][a-z0-9-]*$", cap):
             problems.append("folder name must be lowercase-kebab-case")
