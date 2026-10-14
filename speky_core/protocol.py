@@ -344,6 +344,10 @@ def prime(project: Project, limit_items: int = 5) -> str:
         "decisions: `speky decide` (small) or `speky adr new` (lasting). Compaction can happen any time.",
         "- Owner-only actions (accounts, money, judgement, people) go to `speky owner add`; human gates "
         "(stack, design, scope, merge) are the owner's call: stop and ask.",
+        "- **Nothing you tell the owner lives only in the chat.** Before you end a turn, record what you handed "
+        "them: actions → `speky owner add`; recommendations that need their decision → `speky owner add "
+        "\"Decide: … (recommended: …)\" --section \"Decide or provide\"`; plan changes → `speky task`; decisions → "
+        "`speky decide`.",
         "",
         "## Pick up here",
     ]

@@ -359,7 +359,7 @@ def test_extra_skills_installed_for_each_harness(project, tmp_path_factory, monk
 
 def test_checkpoint_and_test_runs_are_git_ignored(repo):
     continuity.checkpoint(repo, run_tests=False)
-    assert (repo.dir / ".gitignore").read_text().splitlines()[1:] == ["checkpoint.json", "testing/runs.json"]
+    assert (repo.dir / ".gitignore").read_text().splitlines()[1:] == ["checkpoint.json", "testing/runs.json", "turn.json"]
     assert ".speky/checkpoint.json" not in git(repo.root, "status", "--porcelain", "--untracked-files=all")
 
 
@@ -615,3 +615,39 @@ def test_a_clone_without_checkpoint_picks_up_from_the_committed_log(repo):
     text = protocol.prime(repo)
     assert '"Layout moved"' in text and "No handoff recorded" not in text
     assert "1 commit(s) since the handoff" in text and "later work" in text
+
+
+def test_stop_hook_blocks_owner_advice_that_was_not_recorded(project):
+    continuity.turn_start(project)
+    advice = {"last_assistant_message": "Things only you can do: create the remote. I'd defer W34. If you agree I'll start."}
+    out = continuity.stop_check(project, advice)
+    assert out["decision"] == "block" and "speky owner add" in out["reason"]
+    assert continuity.stop_check(project, {**advice, "stop_hook_active": True}) is None   # blocks once
+    assert continuity.stop_check(project, {"last_assistant_message": "Tests pass; done."}) is None
+    OwnerActions(project).add("Create the remote", "Do soon")                              # recorded this turn
+    assert continuity.stop_check(project, advice) is None
+    continuity.turn_start(project)                                                         # next turn, nothing new
+    cfg = project.config
+    cfg["record_check"] = False
+    from speky_core import config
+    config.save(project.root, cfg)
+    assert continuity.stop_check(project, advice) is None
+
+
+def test_stop_hook_cli_reads_stdin_and_never_fails(project, monkeypatch, capsys):
+    import io
+    from speky_core.cli import main as cli_main
+    monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
+    assert cli_main(["checkpoint", "--turn-start"]) == 0
+    monkeypatch.setattr("sys.stdin", io.StringIO('{"last_assistant_message": "You need to approve the design."}'))
+    assert cli_main(["checkpoint", "--stop"]) == 0
+    assert '"decision": "block"' in capsys.readouterr().out
+    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
+    assert cli_main(["checkpoint", "--stop"]) == 0
+
+
+def test_owner_add_finds_a_section_by_the_start_of_its_heading(project):
+    (project.dir / "owner.md").write_text("# Owner\n\n## Do soon (cheap, and they get harder later)\n\n- [ ] O1 Reserve names\n\n## People\n")
+    OwnerActions(project).add("Create the remote", "Do soon")
+    text = (project.dir / "owner.md").read_text()
+    assert text.count("## Do soon") == 1 and "- [ ] O1 Reserve names\n- [ ] O2 Create the remote" in text

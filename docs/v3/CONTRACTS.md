@@ -275,7 +275,7 @@ Failures: `{"ok": false, "error": {"code": "...", "message": "...", "fix": "..."
 
 | Harness | Writes |
 |---|---|
-| `claude-code` | `.claude/skills/speky*/SKILL.md`; `.claude/settings.json` hooks: SessionStart (`startup|clear|compact`) → `speky prime --hook-json`, PreCompact → `speky checkpoint --auto`; minimal block in `CLAUDE.md` (or in `AGENTS.md` when `CLAUDE.md` only imports it) |
+| `claude-code` | `.claude/skills/speky*/SKILL.md`; `.claude/settings.json` hooks: SessionStart (`startup|clear|compact`) → `speky prime --hook-json`, PreCompact → `speky checkpoint --auto`, UserPromptSubmit → `speky checkpoint --turn-start`, Stop → `speky checkpoint --stop` (record check, §12); minimal block in `CLAUDE.md` (or in `AGENTS.md` when `CLAUDE.md` only imports it) |
 | `codex` | `.agents/skills/speky*/SKILL.md`; full block in `AGENTS.md` |
 | `cursor`, `windsurf` | `.agents/skills/`; full block in `AGENTS.md`; v2's `.cursorrules` / `.windsurfrules` cleaned (SPEKY part removed, your rules kept) |
 | `vscode` (alias `copilot`) | `.github/skills/`; full block in `.github/copilot-instructions.md` |
@@ -311,6 +311,15 @@ run lists only what is still pending.
 | `state.md` | `speky handoff` (regenerated) | `prime` ("Where things stand") |
 | `owner.md` | `speky owner add|done`, and the owner by hand (ticks, indented notes) | `prime` (open items + new notes) |
 | `knowledge/*.md` | `speky remember --topic` | `prime` (always topics; triggers of the rest) |
+
+**Nothing lives only in the chat (record check).** When the owner sends a message, SPEKY fingerprints its
+records (`owner.md`, `decisions.md`, `backlog.json`, `state.md`, `log.md`, knowledge, ADRs, change documents,
+phase manifests) in `.speky/turn.json` (per machine). When the agent is about to stop, it reads the reply: if
+it hands the owner something — actions only they can take, decisions or approvals, recommendations ("I'd
+defer…", "if you agree…") — and no record changed this turn, the stop is blocked once with instructions to
+record it (`speky owner add`, "Decide: … (recommended: …)", `speky task`, `speky decide`, `speky remember`) or
+to say why nothing needs recording. Claude Code runs it through hooks; other harnesses get the same rule in
+their SPEKY block. `record_check: false` in `speky.yaml` turns it off.
 
 `speky handoff --summary … --done … --learned … --next … --watch … [--title …] [--commit] [--no-tests]`
 or `--file notes.md` (sections `## Summary`, `## Done`, `## Learned`, `## Next`, `## Watch out for`).

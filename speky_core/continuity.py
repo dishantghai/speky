@@ -20,7 +20,8 @@ from .items import DONE_STATUSES, Project, now, write_json
 LOG_NAME = "log.md"
 STATE_NAME = "state.md"
 CHECKPOINT_NAME = "checkpoint.json"
-LOCAL_FILES = ("checkpoint.json", "testing/runs.json")  # per machine: never committed
+LOCAL_FILES = ("checkpoint.json", "testing/runs.json", "turn.json")  # per machine: never committed
+TURN_NAME = "turn.json"
 
 
 def write_checkpoint(project: Project, data: dict) -> None:
@@ -267,3 +268,58 @@ def session_facts(project: Project) -> dict:
     return {"last_handoff": last, "commits_since": commits, "uncommitted": dirty,
             "last_test": cp.get("last_test"), "checkpoint_at": cp.get("at"), "auto_checkpoint": cp.get("auto"),
             "state_exists": (project.dir / STATE_NAME).exists()}
+
+
+# ---------------------------------------------------------------------------- nothing lives only in the chat
+RECORD_GLOBS = ("owner.md", "decisions.md", "backlog.json", "state.md", "log.md", "knowledge/*.md", "adr/*.md",
+                "specs/*/*.md", "stories/*/*.md", "phases/*/manifest.yaml")
+# phrases that hand the owner something to do, decide or approve, or recommend a change of plan
+OWNER_RE = re.compile(
+    r"\b(only you|you(?:'ll| will)? need to|you should|your call|your decision|for you to|needs? your|"
+    r"waiting on you|you'd have to|if you agree|do you want me to|shall i|should i|want me to|"
+    r"i(?:'d| would)? recommend|i suggest|my recommendation|i'd (?:defer|drop|move|split|stop|start)|"
+    r"next steps? for you|things only you|owner(?:-only)? actions?)\b", re.IGNORECASE)
+
+
+def _record_fingerprint(project: Project) -> Dict[str, float]:
+    from . import layout
+    out = {}
+    roots = [project.dir] + [p for p in layout.paths(project, "adr_dir") if project.dir not in p.parents]
+    for base in roots:
+        for pattern in RECORD_GLOBS:
+            for f in base.glob(pattern):
+                if f.is_file():
+                    out[str(f)] = f.stat().st_mtime
+    return out
+
+
+def turn_start(project: Project) -> None:
+    """UserPromptSubmit hook: remember the state of SPEKY's records when the owner speaks."""
+    if not project.dir.is_dir():
+        return
+    ensure_local_ignored(project)
+    write_json(project.dir / TURN_NAME, {"at": now(), "records": _record_fingerprint(project)})
+
+
+def stop_check(project: Project, payload: dict) -> Optional[dict]:
+    """Stop hook: if the reply hands the owner actions, decisions or recommendations and no SPEKY record
+    changed this turn, block once and ask the agent to record them. Returns the hook decision or None."""
+    if not project.dir.is_dir() or payload.get("stop_hook_active") or \
+            project.config.get("record_check") is False:
+        return None
+    message = payload.get("last_assistant_message") or ""
+    hits = sorted({m.group(0).lower() for m in OWNER_RE.finditer(message)})
+    if not hits:
+        return None
+    path = project.dir / TURN_NAME
+    before = json.loads(path.read_text()).get("records", {}) if path.exists() else None
+    if before is None or _record_fingerprint(project) != before:
+        return None  # records changed this turn (or no baseline): trust the agent
+    return {"decision": "block", "reason": (
+        "SPEKY: your reply hands the owner something (" + ", ".join(hits[:4]) + ") but nothing in .speky/ "
+        "changed this turn, so it exists only in the chat. Record it before you stop: actions only the owner can "
+        "take → `speky owner add \"<what>\" --section \"<Do soon|Decide or provide|People>\"`; recommendations "
+        "that need their decision → `speky owner add \"Decide: <question> (recommended: <answer>, because …)\" "
+        "--section \"Decide or provide\"`; plan changes you made → `speky task …`; decisions taken → `speky "
+        "decide`; learnings → `speky remember --topic`. If it is all recorded already, say so in one line.")}
+

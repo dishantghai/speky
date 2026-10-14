@@ -23,6 +23,9 @@ V2_BEGIN = "<!-- BEGIN SPEKY MANAGED BLOCK"
 V2_END = "<!-- END SPEKY MANAGED BLOCK -->"
 HOOK_COMMAND = "command -v speky >/dev/null 2>&1 && speky prime --hook-json || true"
 PRECOMPACT_COMMAND = "command -v speky >/dev/null 2>&1 && speky checkpoint --auto >/dev/null 2>&1 || true"
+TURN_START_COMMAND = "command -v speky >/dev/null 2>&1 && speky checkpoint --turn-start || true"
+STOP_COMMAND = "command -v speky >/dev/null 2>&1 && speky checkpoint --stop || true"
+HOOK_EVENTS = ("SessionStart", "PreCompact", "UserPromptSubmit", "Stop")
 
 MINIMAL_BLOCK = """## SPEKY
 
@@ -53,6 +56,8 @@ you do the work through the `speky` CLI (every `--json` command prints one JSON 
 - Validation converges: `speky check <id>`; record only verified findings; stop when it says converged.
 - Discovered work: `speky new story "..." --discovered-from <id>`. Decisions: `speky decide`.
 - Human gates (stack, design, scope, merge) are the user's call: stop and ask.
+- Nothing you tell the owner lives only in the chat: before ending a turn, record owner actions and
+  recommendations that need their decision (`speky owner add`), plan changes (`speky task`), decisions.
 """
 
 RECIPES = {
@@ -299,14 +304,21 @@ def _install_hook(project: Project, rel: str) -> List[str]:
                              "Fix it by hand, then run setup again.")
     hooks = settings.setdefault("hooks", {})
     for event, matcher, command in (("SessionStart", "startup|resume|clear|compact", HOOK_COMMAND),
-                                    ("PreCompact", "manual|auto", PRECOMPACT_COMMAND)):
+                                    ("PreCompact", "manual|auto", PRECOMPACT_COMMAND),
+                                    ("UserPromptSubmit", None, TURN_START_COMMAND),
+                                    ("Stop", None, STOP_COMMAND)):
         entries = hooks.setdefault(event, [])
         entries[:] = [e for e in entries if not _is_speky_hook(e)]
-        entries.append({"matcher": matcher, "hooks": [{"type": "command", "command": command}]})
+        entry = {"hooks": [{"type": "command", "command": command}]}
+        if matcher:
+            entry = {"matcher": matcher, **entry}
+        entries.append(entry)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(settings, indent=2) + "\n")
     return [f"{rel}: SessionStart hook runs `speky prime --hook-json` (startup, resume, clear, compact)",
-            f"{rel}: PreCompact hook runs `speky checkpoint --auto` (saves state before compaction)"]
+            f"{rel}: PreCompact hook runs `speky checkpoint --auto` (saves state before compaction)",
+            f"{rel}: UserPromptSubmit + Stop hooks: what the agent tells the owner must be recorded in .speky/, "
+            "not only in the chat (`record_check: false` in speky.yaml turns it off)"]
 
 
 def _disable_v2_rules(project: Project, ide: str) -> List[str]:
@@ -396,7 +408,7 @@ def check(project: Project, harness: str) -> Dict:
             try:
                 hooks = json.loads(hook_path.read_text()).get("hooks", {})
                 ok = all(any(_is_speky_hook(e) for e in hooks.get(ev, []))
-                         for ev in ("SessionStart", "PreCompact"))
+                         for ev in HOOK_EVENTS)
             except json.JSONDecodeError:
                 ok = False
         files[recipe["hook"]] = "current" if ok else "missing"
@@ -432,7 +444,7 @@ def remove(project: Project, harness: str) -> Dict:
             settings = json.loads(hook_path.read_text() or "{}")
             hooks = settings.get("hooks", {})
             removed = False
-            for event in ("SessionStart", "PreCompact"):
+            for event in HOOK_EVENTS:
                 entries = hooks.get(event, [])
                 kept = [e for e in entries if not _is_speky_hook(e)]
                 removed = removed or len(kept) != len(entries)

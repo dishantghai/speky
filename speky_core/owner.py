@@ -94,8 +94,13 @@ class OwnerActions:
         oid = self._next_id()
         new = [f"- [ ] {oid} {text}"] + ([f"  - {note}"] if note else [])
         # append at the end of the named section, creating it if needed
-        start = next((i for i, l in enumerate(self.lines)
-                      if SECTION_RE.match(l) and SECTION_RE.match(l).group(1).lower() == section.lower()), None)
+        names = [(i, SECTION_RE.match(l).group(1).lower()) for i, l in enumerate(self.lines)
+                 if SECTION_RE.match(l) and not l.startswith("###")]
+        want = section.lower()
+        # the exact section, else one whose heading starts with it ("Do soon" → "Do soon (cheap, …)")
+        start = next((i for i, n in names if n == want), None)
+        if start is None:
+            start = next((i for i, n in names if n.startswith(want)), None)
         if start is None:
             self.lines += ["", f"## {section}", ""] + new
         else:

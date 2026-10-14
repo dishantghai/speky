@@ -291,6 +291,8 @@ def _parser() -> argparse.ArgumentParser:
     sp = add("checkpoint")
     sp.add_argument("--auto", action="store_true", help="called by a hook (no tests)")
     sp.add_argument("--run-tests", action="store_true")
+    sp.add_argument("--turn-start", action="store_true", help="hook: the owner sent a message")
+    sp.add_argument("--stop", action="store_true", help="hook: the agent is about to stop (checks records)")
 
     add("refs")
 
@@ -1034,8 +1036,29 @@ def run(argv: List[str]) -> dict:
     raise SpekyError("unknown_command", f"Unknown command {cmd}.")
 
 
+def _turn_hook(argv: List[str]) -> int:
+    """Claude Code UserPromptSubmit / Stop hooks. Never fails the session: errors mean "allow"."""
+    try:
+        payload = json.loads(sys.stdin.read() or "{}") if not sys.stdin.isatty() else {}
+    except (ValueError, OSError):
+        payload = {}
+    try:
+        project = Project.open(require=False)
+        if "--turn-start" in argv:
+            continuity.turn_start(project)
+        else:
+            decision = continuity.stop_check(project, payload)
+            if decision:
+                print(json.dumps(decision))
+    except Exception:  # a hook must never break the agent's session
+        pass
+    return 0
+
+
 def main(argv: List[str] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["checkpoint"] and ("--stop" in argv or "--turn-start" in argv):
+        return _turn_hook(argv)
     as_json = "--json" in argv
     try:
         result = run(argv)
