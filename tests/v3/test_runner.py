@@ -100,3 +100,14 @@ def test_run_without_a_model_explains_how_to_set_one(tmp_path, monkeypatch):
     monkeypatch.setattr(speky_llm.shutil, "which", lambda name: None)
     err = cli("run", "do something", expect=1)["error"]
     assert err["code"] == "no_model" and "speky config model" in err["fix"]
+
+
+def test_runner_reports_usage_errors_and_help(project):
+    script = Script(
+        {"tool": "speky", "args": {"argv": ["evidence", "X", "R1", "--status", "met", "--note", "x"]}},
+        {"tool": "speky", "args": {"argv": ["evidence", "--help"]}},
+        {"tool": "finish", "args": {"summary": "ok"}},
+    )
+    out = runner(project, script).run("try")
+    assert "unrecognized arguments: --note" in out["steps"][0]["observation"]
+    assert "--evidence" in out["steps"][1]["observation"]

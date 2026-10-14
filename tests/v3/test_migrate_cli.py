@@ -126,3 +126,36 @@ def test_parser_knows_every_command():
     from speky_core.cli import COMMANDS, _parser
     sub = next(a for a in _parser()._actions if a.dest == "cmd")
     assert set(sub.choices) == COMMANDS
+
+
+def test_migrate_moves_v2_product_tech_validation_and_testing(tmp_path, monkeypatch):
+    sp = make_v2_project(tmp_path)
+    ctx = {"product": {"name": "Spayce", "description": "One app for browsing and notes",
+                       "platforms": ["macOS", "Linux"]},
+           "architecture": {"tech_stack": {"desktop": "Electron 30+", "ui": "React 18+"},
+                            "decisions": ["pnpm workspaces monorepo"]},
+           "decisions": ["Use WebContentsView (not BrowserView)"]}
+    (sp / "context" / "context.json").write_text(json.dumps(ctx))
+    (sp / "specs" / "001-foundation" / "validation_actions.json").write_text(json.dumps([
+        {"item": "**Missing error types**: which package", "intent": "Fixed", "status": "applied"},
+        {"item": "Retry policy undefined", "intent": "Fix", "status": "pending"}]))
+    (sp / "testing").mkdir()
+    (sp / "testing" / "config.yaml").write_text("coverage_threshold: 75\n")
+    monkeypatch.chdir(tmp_path)
+    plan = cli("migrate")
+    steps = {s["step"] for s in plan["pending"]}
+    assert {"import_v2_product", "import_v2_tech", "import_v2_validation", "import_v2_testing"} <= steps
+    cli("migrate", "--apply")
+    product = (sp / "knowledge" / "product.md").read_text()
+    assert "Product: Spayce" in product and "Platforms: macOS, Linux" in product
+    tech = (sp / "knowledge" / "tech.md").read_text()
+    assert "Use WebContentsView" in tech and "Electron 30+" in tech and "always" in tech
+    findings = json.loads((sp / "specs" / "001-foundation" / "findings.json").read_text())
+    assert [f["status"] for f in findings] == ["accepted", "open"]
+    assert "Missing error types" in findings[0]["text"] and "**" not in findings[0]["text"]
+    assert cli("config", "get", "testing.coverage_threshold")["value"] == 75
+    assert cli("migrate")["done"]
+    from speky_core import protocol
+    from speky_core.items import Project
+    text = protocol.prime(Project(tmp_path))
+    assert "Use WebContentsView" in text and "Product: Spayce" in text

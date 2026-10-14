@@ -84,6 +84,25 @@ class Tasks:
         self.save()
         return self._view(t)
 
+    def verify(self, ref: str, run: str = None) -> dict:
+        """Run the project's tests for a task; a pass marks it done and records the run as a note."""
+        import subprocess
+        t = self.get(ref)
+        cmd = run or self.project.config.get("verify_command") or ""
+        if not cmd:
+            raise SpekyError("no_verify_command", "No verify command configured.",
+                             "Set verify_command in speky.yaml (`speky test init` detects it), or pass --run.")
+        proc = subprocess.run(cmd, shell=True, cwd=self.project.root, capture_output=True, text=True)
+        passed = proc.returncode == 0
+        note = f"verified: `{cmd}` exit {proc.returncode}"
+        if passed and t["status"] != "done":
+            t["status"], t["done_at"] = "done", now()
+        t.setdefault("notes", []).append(f"{now()[:10]} {note}")
+        self.save()
+        return {"task": t["id"], "passed": passed, "command": cmd, "exit_code": proc.returncode,
+                "status": t["status"], "missing": [] if passed else [f"`{cmd}` failed"],
+                "output_tail": "\n".join((proc.stdout + proc.stderr).splitlines()[-15:])}
+
     def promote(self, ref: str, to: str = "story", story_type: str = "feature") -> dict:
         t = self.get(ref)
         item = self.project.create("spec" if to == "spec" else "story", t["name"][:80], story_type=story_type,

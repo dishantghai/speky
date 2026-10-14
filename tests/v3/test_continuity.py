@@ -262,3 +262,19 @@ def test_removing_claude_code_keeps_agents_md_block_used_by_codex(project):
     harness.setup(project, "codex")
     harness.remove(project, "claude-code")
     assert "BEGIN SPEKY v:3" in (root / "AGENTS.md").read_text()
+
+
+def test_verify_a_task_runs_tests_and_marks_it_done(project):
+    from speky_core import config
+    cfg = project.config
+    cfg["verify_command"] = "python -c 'raise SystemExit(0)'"
+    config.save(project.root, cfg)
+    Tasks(project).add("Small fix")
+    out = cli("verify", "W1")
+    assert out["passed"] and out["status"] == "done"
+    Tasks(project).add("Another")
+    cfg["verify_command"] = "python -c 'raise SystemExit(3)'"
+    config.save(project.root, cfg)
+    out = cli("task", "done", "W2", "--verify", expect=1)
+    assert out["error"]["code"] == "task_not_verified"
+    assert Tasks(project).get("W2")["status"] == "todo"

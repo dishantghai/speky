@@ -142,14 +142,21 @@ class Runner:
         from . import cli
         if argv and argv[0] == "run":
             return "refused: `speky run` cannot be started from inside the runner"
-        argv = [a for a in argv if a != "--json"]
+        import contextlib
+        import io
+        argv = [str(a) for a in argv if a != "--json"]
+        out, err = io.StringIO(), io.StringIO()
         try:
-            return json.dumps(cli.run(argv), default=str)
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                return json.dumps(cli.run(argv), default=str)
         except SpekyError as e:
             return json.dumps({"ok": False, "error": e.to_dict()})
-        except SystemExit:
-            return json.dumps({"ok": False, "error": {"code": "bad_usage", "message": "invalid arguments",
-                                                      "fix": f"check `speky {argv[0] if argv else ''} --help`"}})
+        except SystemExit as e:
+            if e.code in (0, None) and out.getvalue():  # --help
+                return out.getvalue()[-MAX_OBSERVATION:]
+            message = (err.getvalue().strip().splitlines() or ["invalid arguments"])[-1]
+            return json.dumps({"ok": False, "error": {"code": "bad_usage", "message": message,
+                                                      "fix": f"see `speky {argv[0] if argv else ''} --help`"}})
 
     def _allowed(self, command: str) -> bool:
         if self.allow_shell:

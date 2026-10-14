@@ -5,6 +5,7 @@ Errors exit 1 with {"ok": false, "error": {"code", "message", "fix"}}.
 """
 import argparse
 import json
+import re
 import sys
 from typing import List
 
@@ -46,7 +47,7 @@ Start here
 
 Work items
   spec | story "<title>"   create a change (also: new spec|story); --epic --related --files --phase
-  task add|start|done|defer|promote|list      small work without a spec
+  task add|start|done [--verify]|defer|promote|list   small work without a spec (verify W<n> runs the tests)
   epic add|show|attach|detach|list            stories that share context
   phases list|add|start|deliverable|verify|check|complete   phases with deliverables as their gate
   deps add|remove|clear|foundation|cycles  ·  order [--export]        dependencies and order
@@ -230,6 +231,8 @@ def _parser() -> argparse.ArgumentParser:
         tx = tsub.add_parser(name)
         tx.add_argument("id")
         tx.add_argument("--note", default="")
+        if name == "done":
+            tx.add_argument("--verify", action="store_true", help="run verify_command first; done only if it passes")
         tx.add_argument("--json", action="store_true")
     tp = tsub.add_parser("promote")
     tp.add_argument("id")
@@ -637,6 +640,8 @@ def run(argv: List[str]) -> dict:
         return verification.record_evidence(project, project.find(args.id), args.requirement,
                                             args.status, args.evidence)
     if cmd == "verify":
+        if re.match(r"^[Ww]\d+$", args.id) and not project.try_find(args.id):
+            return Tasks(project).verify(args.id, run=args.run)  # a task: tests pass → done
         return verification.verify(project, project.find(args.id), run=args.run)
     if cmd == "archive":
         return verification.archive(project, project.find(args.id), force_reason=args.force)
@@ -703,6 +708,12 @@ def run(argv: List[str]) -> dict:
             return {"tasks": tasks.list(args.status, args.phase)}
         if args.action == "promote":
             return tasks.promote(args.id, args.to, args.type)
+        if args.action == "done" and args.verify:
+            result = tasks.verify(args.id)
+            if not result["passed"]:
+                raise SpekyError("task_not_verified", f"{args.id} stays open: `{result['command']}` failed.",
+                                 "Fix the failure and run it again, or mark it done without --verify.")
+            return result
         status = {"start": "doing", "done": "done", "defer": "deferred", "todo": "todo"}[args.action]
         return tasks.set_status(args.id, status, args.note)
     if cmd == "owner":

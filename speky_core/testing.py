@@ -46,7 +46,8 @@ def detect(project: Project) -> dict:
             found["coverage_command"] = "npx vitest run --coverage"
         elif found["runner"] == "jest":
             found["coverage_command"] = "npx jest --coverage"
-    elif (root / "pyproject.toml").exists() or (root / "pytest.ini").exists() or (root / "tests").is_dir():
+    elif (root / "pyproject.toml").exists() or (root / "pytest.ini").exists() or (root / "tests").is_dir() \
+            or any(root.glob("test_*.py")) or any(root.glob("*_test.py")):
         runner = "uv run pytest -q" if (root / "uv.lock").exists() else "python -m pytest -q"
         found.update(runner="pytest", verify_command=runner,
                      coverage_command=runner.replace("pytest -q", "pytest -q --cov"))
