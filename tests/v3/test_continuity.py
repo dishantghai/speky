@@ -514,15 +514,19 @@ def test_layout_defaults_overrides_and_check(project):
     (project.root / "docs" / "decisions").mkdir(parents=True)
     for n in ("0001-a.md", "0002-b.md"):
         (project.root / "docs" / "decisions" / n).write_text("# ADR\n\nStatus: Accepted\n")
+    (project.root / "project_ops" / "TECH_RESEARCH").mkdir()
+    for n in ("a.md", "b.md"):
+        (project.root / "project_ops" / "TECH_RESEARCH" / n).write_text("notes\n")
     problems = {p["kind"]: p["path"] for p in cli("layout", "--check")["problems"]}
-    assert problems == {"design_screens": "project_ops/HIFI_UI_DESIGN_SCREENS", "adr_dir": "docs/decisions"}
+    assert problems == {"design_screens": "project_ops/HIFI_UI_DESIGN_SCREENS", "adr_dir": "docs/decisions",
+                        "research": "project_ops/TECH_RESEARCH"}
     # import the screens into the standard layout (one ID per screen) — the folder is emptied
     for f in sorted(folder.iterdir()):
         cli("design", "screen", "add", f.stem.lower().replace(" ", "-"), str(f), "--move")
     assert not any(folder.iterdir())
     assert cli("design", "screen", "list")["screens"][0]["id"] == "browser-tab-bar"
     cfg = project.config
-    cfg["paths"] = {"adr_dir": "docs/decisions"}
+    cfg["paths"] = {"adr_dir": "docs/decisions", "research": "project_ops/TECH_RESEARCH"}
     config.save(project.root, cfg)
     assert cli("layout", "--check")["valid"]
     assert rows["adr_dir"]["override"] == "paths.adr_dir"

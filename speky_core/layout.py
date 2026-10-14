@@ -83,6 +83,20 @@ def _adr_folders(project: Project) -> List[str]:
     return found
 
 
+def _research_folders(project: Project) -> List[str]:
+    known = {str(p.relative_to(project.root)) for p in paths(project, "research")}
+    found = []
+    for d in project.root.rglob("*"):
+        if not d.is_dir() or any(p in SKIP_DIRS or p.startswith(".") for p in d.relative_to(project.root).parts):
+            continue
+        rel = str(d.relative_to(project.root))
+        if re.search(r"research", d.name, re.I) and rel not in known and \
+                not any(rel.startswith(f + "/") for f in found) and \
+                len([f for f in d.rglob("*.md")][:2]) >= 2:
+            found.append(rel)
+    return found
+
+
 def check(project: Project) -> Dict:
     """Non-code artifacts kept where SPEKY doesn't look."""
     from . import uxdesign
@@ -94,6 +108,10 @@ def check(project: Project) -> Dict:
     for rel in _adr_folders(project):
         problems.append({"kind": "adr_dir", "path": rel,
                          "fix": f"ADRs found here: `speky config set paths.adr_dir {rel}` (or move them to .speky/adr/)"})
+    for rel in _research_folders(project):
+        problems.append({"kind": "research", "path": rel,
+                         "fix": "research for one change goes in its folder (research.md); general research in "
+                                f".speky/research/ — move it there, or `speky config set paths.research {rel}`"})
     legacy = project.dir / "context" / "design_system.md"
     if legacy.exists() and not (project.config.get("paths") or {}).get("design_system") \
             and not (project.root / DEFAULTS["design_system"]).exists():
