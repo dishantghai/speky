@@ -122,7 +122,7 @@ def test_migrate_done_acknowledges_judgement_tasks(tmp_path, monkeypatch):
     assert cli("migrate", "--done", "nope", expect=1)["error"]["code"] == "unknown_migration_task"
 
 
-def test_help_lists_every_v3_command():
-    import speky
-    from speky_core.cli import COMMANDS
-    assert {name for name, _ in speky.V3_COMMAND_HELP} == COMMANDS
+def test_parser_knows_every_command():
+    from speky_core.cli import COMMANDS, _parser
+    sub = next(a for a in _parser()._actions if a.dest == "cmd")
+    assert set(sub.choices) == COMMANDS

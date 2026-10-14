@@ -20696,11 +20696,20 @@ def _v3_managed_ides(project_root: Path) -> set:
 
 
 def main():
-    """Main CLI entry point"""
-    # SPEKY v3 commands (agent protocol) live in speky_core; everything else is v2
-    if len(sys.argv) > 1 and sys.argv[1] in _v3_commands():
-        from speky_core.cli import main as v3_main
-        sys.exit(v3_main(sys.argv[1:]))
+    """Main CLI entry point: every command is implemented in speky_core (one SPEKY).
+
+    The v2 implementation below stays only until its parity tests are rewritten, then it is deleted
+    (docs/v3/PLAN.md §11); it is no longer reachable from the command line.
+    """
+    from speky_core.cli import main as v3_main
+    argv = sys.argv[1:]
+    if not argv or argv[0] in ("-h", "--help", "help"):
+        argv = ["--help"]
+    sys.exit(v3_main(argv))
+
+
+def main_v2():
+    """The retired v2 dispatcher (kept for the parity tests until the v2 code is deleted)."""
     parser = argparse.ArgumentParser(
         prog="speky",
         description="SPEKY: spec-driven development for AI coding agents",
