@@ -1,23 +1,12 @@
 #!/usr/bin/env python3
 """
-SPEKY v2: AI-Assisted Scalable Engineering Framework
-Orchestration layer for AI-assisted software development
+SPEKY: spec-driven development for AI coding agents.
 
-Commands:
-    speky init "Product idea"           - Initialize new project
-    speky spec "Feature name"           - Create feature specification  
-    speky plan <spec-id>                 - Generate implementation plan
-    speky story --type <type> "Title"   - Create story (feature/bug/enhancement)
-    speky implement <id>                 - Hand off to IDE (Windsurf/Cursor/Claude Code)
-    speky status                         - Show all specs and stories
-    speky sync                           - Update codebase context
-    speky review                         - Check spec-code drift
-
-Design Principles:
-    - Tech/IDE/Scale agnostic
-    - Thin orchestration layer (not a replacement for AI coding tools)
-    - MCP-ready for context management
-    - Supports ongoing development (not just initial scaffolding)
+v3 (speky_core): SPEKY keeps state, rules and evidence; any coding agent (Claude Code, Codex,
+Cursor, ...) does the reasoning through `speky setup | next | check | verify | archive ...`.
+v2 (this file): the classic commands — init, spec, plan, implement, complete, commit, epics,
+phases, design, test, import — which call an AI model themselves. Both work on the same
+.speky/ folders. Run `speky --help`.
 """
 
 import json
@@ -1175,8 +1164,18 @@ The output must be the full specification document."""
     @staticmethod
     def validate_spec(spec_content: str, project_context: str = "", 
                       related_specs: str = "", tech_stack: str = "",
-                      tech_decisions: str = "", poc_recommendations: str = "") -> str:
+                      tech_decisions: str = "", poc_recommendations: str = "",
+                      already_reviewed: str = "") -> str:
         """Validate a specification and identify gaps - context-aware version"""
+        reviewed_section = ""
+        if already_reviewed:
+            reviewed_section = f"""
+=== ALREADY REVIEWED IN EARLIER ROUNDS ===
+These were raised before and are fixed, accepted or still being handled. Do NOT repeat them,
+rephrase them, or raise a narrower variant of them:
+{already_reviewed}
+=== END ALREADY REVIEWED ===
+"""
         
         context_section = ""
         if project_context or tech_stack:
@@ -1220,8 +1219,14 @@ RELATED SPECS IN PROJECT (check for overlaps/conflicts):
 {tech_decisions_section}
 {poc_section}
 {related_section}
+{reviewed_section}
 SPECIFICATION TO VALIDATE:
 {spec_content}
+
+GAP BAR (strict): report a gap only if an implementer would have to guess AND a wrong guess
+would change user-visible behaviour or stored data. Nice-to-haves, polish and style are
+Suggestions, not Gaps. Report at most 5 gaps, most important first. If there is no new gap,
+write "No new gaps." under ## Gaps/Issues.
 
 VALIDATION RULES:
 1. **MVP Focus**: Is the scope minimal and achievable in 1-2 weeks?
@@ -2893,7 +2898,7 @@ class AIClient:
                 Console.error(str(e))
 
     def query(self, prompt: str, system: str = None, max_tokens: int = None, use_streaming: bool = None,
-              expect_json: bool = False) -> Optional[str]:
+              expect_json: bool = False, temperature: float = None) -> Optional[str]:
         """Query the configured model (falling back through `fallbacks`) and return the text."""
         if system is None:
             system = "You are an expert AI assistant. Be concise and actionable."
@@ -2902,7 +2907,8 @@ class AIClient:
         if use_streaming is None:
             use_streaming = tokens > 8192
         try:
-            return self.router.complete(prompt, system, tokens, self.config["temperature"],
+            temp = self.config["temperature"] if temperature is None else temperature
+            return self.router.complete(prompt, system, tokens, temp,
                                         stream=use_streaming, expect_json=expect_json)
         except LLMError as e:
             Console.error(f"AI request failed: {e}")
@@ -3037,6 +3043,8 @@ class IDEIntegration:
             target_ide: Specific IDE to update (None = use self.ide for backward compat)
         """
         ide_to_update = target_ide or self.ide
+        if ide_to_update in _v3_managed_ides(self.project_root):
+            return  # `speky setup` owns this file now; v2's large rules block must not come back
         ide_config = self.IDE_CONFIGS.get(ide_to_update)
         
         if not ide_config:
@@ -3119,6 +3127,7 @@ class IDEIntegration:
         elif self._is_legacy_speky_file(existing):
             backup_dir = self.project_root / SPEKY_DIR / "backups"
             backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / ".gitignore").write_text("# local safety copies; git history already has the originals\n*\n")
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             backup = backup_dir / f"{filepath.name.lstrip('.')}.{stamp}.bak"
             backup.write_text(existing)
@@ -7239,6 +7248,10 @@ Stay within phase scope. Check phase excludes before implementing."""
             status = json.loads(status_file.read_text())
             status["status"] = ItemStatus.IN_PROGRESS.value
             status["implementation_started"] = datetime.now().isoformat()
+            if not status.get("base_sha"):
+                head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.project_root,
+                                      capture_output=True, text=True)
+                status["base_sha"] = head.stdout.strip() if head.returncode == 0 else "NO_VCS"
             status_file.write_text(json.dumps(status, indent=2))
         
         Console.success("IDE context updated with full context chain")
@@ -9767,7 +9780,7 @@ Happy building! 🚀
     # -------------------------------------------------------------------------
     # Command: validate-spec
     # -------------------------------------------------------------------------
-    def cmd_validate_spec(self, spec_ref: str, quick: bool = False) -> bool:
+    def cmd_validate_spec(self, spec_ref: str, quick: bool = False, force: bool = False) -> bool:
         """Validate a spec - check quality, find gaps, suggest improvements"""
         if not self._require_init():
             return False
@@ -9804,8 +9817,49 @@ Happy building! 🚀
             if session.related_specs:
                 Console.log(f"Found {len(session.related_specs)} potentially related spec(s)")
         
+        # Convergence (SPEKY v3 ledger): no new round on an unchanged spec, a round cap, and
+        # earlier findings passed to the model so it doesn't raise them again in new words
+        from speky_core import config as v3_config, validation as v3_validation
+        from speky_core.items import Item as V3Item, now as v3_now
+        v3_item = V3Item(spec_file.parent, "spec")
+        v2_state = v3_item.load_status().get("v2_validation", {}) if v3_item.status_path.exists() else {}
+        current_hash = v3_validation.spec_hash(spec_content)
+        max_rounds = int(v3_config.load(self.project_root).get("max_rounds", 2))
+        if not force and v2_state.get("round") and v2_state.get("hash") == current_hash:
+            Console.success(f"Spec unchanged since validation round {v2_state['round']} — nothing new "
+                            "to validate. (--force to run anyway)")
+            return True
+        if not force and v2_state.get("round", 0) >= max_rounds:
+            Console.success(f"Validation has converged: {v2_state['round']} rounds done (cap {max_rounds}). "
+                            "More rounds are unlikely to add value; remaining questions can be settled "
+                            "while implementing. (--force to run anyway)")
+            return True
+        round_no = v2_state.get("round", 0) + 1
+        ledger = v3_validation.Ledger(v3_item)
+        for finding in ledger.findings:
+            if finding.get("source") == "validate-spec" and finding["status"] == "open":
+                finding.update(status="accepted", ruling=f"handled in validate-spec round {finding['round']}",
+                               resolved_at=v3_now())
+        ledger.save()
+        already_reviewed = "\n".join(f"- {f['text']}" for f in ledger.findings
+                                     if f.get("source") == "validate-spec")
+        Console.log(f"Validation round {round_no} of {max_rounds}")
+
         # Run validation with context
-        validation_result = self._validate_spec_content(spec_content, spec_name, session)
+        validation_result = self._validate_spec_content(spec_content, spec_name, session,
+                                                        already_reviewed=already_reviewed)
+        new_gaps = []
+        for gap in validation_result.get("gaps", []):
+            added = ledger.add(gap, "major", source="validate-spec", round_=round_no)
+            if not added.get("duplicate") or added.get("status") == "open":
+                new_gaps.append(gap)
+        suppressed = len(validation_result.get("gaps", [])) - len(new_gaps)
+        if suppressed:
+            Console.log(f"Dropped {suppressed} finding(s) already reviewed in an earlier round")
+        validation_result["gaps"] = new_gaps
+        if v3_item.status_path.exists():
+            v3_item.update_status(v2_validation={"round": round_no, "hash": current_hash,
+                                                 "checked_at": v3_now()})
         validation_result["session"] = session
         
         # Display results - interactive or quick
@@ -9819,7 +9873,7 @@ Happy building! 🚀
     # -------------------------------------------------------------------------
     # Command: validate-story
     # -------------------------------------------------------------------------
-    def cmd_validate_story(self, story_ref: str, quick: bool = False) -> bool:
+    def cmd_validate_story(self, story_ref: str, quick: bool = False, force: bool = False) -> bool:
         """Validate a story - check completeness for complex stories"""
         if not self._require_init():
             return False
@@ -9855,6 +9909,22 @@ Happy building! 🚀
             except:
                 pass
         
+        # Convergence: no new round on an unchanged story, and a round cap
+        from speky_core import config as v3_config, validation as v3_validation
+        from speky_core.items import Item as V3Item, now as v3_now
+        v3_item = V3Item(story_file.parent, "story")
+        v2_state = v3_item.load_status().get("v2_validation", {}) if v3_item.status_path.exists() else {}
+        current_hash = v3_validation.spec_hash(story_content)
+        max_rounds = int(v3_config.load(self.project_root).get("max_rounds", 2))
+        if not force and v2_state.get("round") and v2_state.get("hash") == current_hash:
+            Console.success(f"Story unchanged since validation round {v2_state['round']} — nothing new "
+                            "to validate. (--force to run anyway)")
+            return True
+        if not force and v2_state.get("round", 0) >= max_rounds:
+            Console.success(f"Validation has converged: {v2_state['round']} rounds done (cap {max_rounds}). "
+                            "(--force to run anyway)")
+            return True
+
         # Run AI validation
         Console.section("AI Analysis")
         validation_response = self.ai.query(Prompts.validate_story(
@@ -9862,7 +9932,10 @@ Happy building! 🚀
             project_context=product_context,
             related_specs=related_specs_content,
             tech_stack=tech_stack
-        ))
+        ), temperature=0)
+        if validation_response and v3_item.status_path.exists():
+            v3_item.update_status(v2_validation={"round": v2_state.get("round", 0) + 1,
+                                                 "hash": current_hash, "checked_at": v3_now()})
         
         if not validation_response:
             Console.error("Failed to get AI validation")
@@ -10559,7 +10632,7 @@ Add error handling and edge cases to acceptance criteria.
         return None
     
     def _validate_spec_content(self, content: str, spec_name: str, 
-                                session: ValidationSession = None) -> dict:
+                                session: ValidationSession = None, already_reviewed: str = "") -> dict:
         """Validate spec content and return detailed results - context-aware"""
         results = {
             "is_valid": True,
@@ -10651,8 +10724,9 @@ Target Users: {product.get('target_users', '')}"""
             related_specs=related_specs,
             tech_stack=tech_stack,
             tech_decisions=tech_decisions,
-            poc_recommendations=poc_recommendations
-        ))
+            poc_recommendations=poc_recommendations,
+            already_reviewed=already_reviewed
+        ), temperature=0)
         
         if analysis:
             # Parse AI analysis
@@ -14748,7 +14822,7 @@ Create a merged spec that:
                     
                     spec_info = {
                         "id": status.get("id"),
-                        "name": status.get("name"),
+                        "name": status.get("name") or status.get("title") or spec_dir.name.split("-", 1)[-1],
                         "summary": spec_summary,
                         "foundation": status.get("foundation", False),
                         "current_deps": status.get("dependencies", [])
@@ -15114,7 +15188,7 @@ If no dependencies (foundation spec), return: {{"dependencies": [], "reasoning":
                     if status.get("status") != "deprecated":
                         specs.append({
                             "id": status.get("id"),
-                            "name": status.get("name"),
+                            "name": status.get("name") or status.get("title") or spec_dir.name.split("-", 1)[-1],
                             "dependencies": status.get("dependencies", []),
                             "dir": spec_dir
                         })
@@ -15210,7 +15284,7 @@ If no dependencies (foundation spec), return: {{"dependencies": [], "reasoning":
                     if status.get("status") != "deprecated":
                         specs.append({
                             "id": status.get("id"),
-                            "name": status.get("name"),
+                            "name": status.get("name") or status.get("title") or spec_dir.name.split("-", 1)[-1],
                             "status": status.get("status", "draft"),
                             "priority": status.get("priority", "P1"),
                             "dependencies": status.get("dependencies", []),
@@ -16140,7 +16214,7 @@ Keep it focused and actionable. This should be implementable in 1-4 hours."""
                         foundation_count += 1
                     specs.append({
                         "id": status.get("id"),
-                        "name": status.get("name"),
+                        "name": status.get("name") or status.get("title") or spec_dir.name.split("-", 1)[-1],
                         "priority": status.get("priority", "P1"),
                         "dependencies": status.get("dependencies", []),
                         "source": status.get("source", "unknown"),
@@ -20551,13 +20625,73 @@ def _global_options_parser() -> argparse.ArgumentParser:
     return parent
 
 
+# Shown in `speky --help`; the commands themselves live in speky_core.cli
+V3_COMMAND_HELP = [
+    ("setup", "[v3] Set up SPEKY for a coding agent: skills + instructions (claude-code, codex, agents-md)"),
+    ("next", "[v3] The one next action for the agent, with the skill to use"),
+    ("prime", "[v3] Workflow + current state for an agent session"),
+    ("new", "[v3] Create a change: new spec|story \"<title>\""),
+    ("state", "[v3] All items with status, blockers and gates"),
+    ("ready", "[v3] Items whose dependencies and gates are clear"),
+    ("check", "[v3] Rubric + findings ledger; reports when validation has converged"),
+    ("finding", "[v3] Add, list or resolve validation findings"),
+    ("start", "[v3] Record the starting commit and begin work on an item"),
+    ("evidence", "[v3] Record verification evidence for a requirement"),
+    ("verify", "[v3] Evidence-gated verification (every requirement + verify command)"),
+    ("archive", "[v3] Merge a verified change into the living specs"),
+    ("capabilities", "[v3] Living specs with requirement counts and problems"),
+    ("decide", "[v3] Append to the decision log"),
+    ("remember", "[v3] Save a project fact for every agent session"),
+    ("adr", "[v3] Architecture decision records (new, list)"),
+    ("term", "[v3] Add a glossary term"),
+    ("gate", "[v3] Human / CI / PR gates that block an item"),
+    ("link", "[v3] Typed links between items (discovered-from, caused-by, ...)"),
+    ("migrate", "[v3] Bring a v2 project to v3 (dry run; --apply; --done TASK)"),
+    ("set", "[v3] Change an item's status by hand"),
+]
+
+
+def _v3_commands() -> set:
+    try:
+        from speky_core.cli import COMMANDS
+        return COMMANDS
+    except ImportError:
+        return set()
+
+
+def _v3_managed_ides(project_root: Path) -> set:
+    """v2 IDE targets whose instruction file is now managed by `speky setup` (v3)."""
+    path = Path(project_root) / SPEKY_DIR / "speky.yaml"
+    if not path.exists():
+        return set()
+    try:
+        import yaml
+        harnesses = (yaml.safe_load(path.read_text()) or {}).get("harnesses") or []
+    except Exception:
+        return set()
+    return {"claude-code"} & set(harnesses)
+
+
 def main():
     """Main CLI entry point"""
+    # SPEKY v3 commands (agent protocol) live in speky_core; everything else is v2
+    if len(sys.argv) > 1 and sys.argv[1] in _v3_commands():
+        from speky_core.cli import main as v3_main
+        sys.exit(v3_main(sys.argv[1:]))
     parser = argparse.ArgumentParser(
         prog="speky",
-        description="SPEKY v2: AI-Assisted Scalable Engineering Framework",
+        description="SPEKY: spec-driven development for AI coding agents",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
+Start here:
+  New project       speky setup claude-code      (or codex, agents-md) — then ask your agent
+                                                 to build something; no API key needed
+  What to do next   speky next
+  v2 project        speky migrate                (dry run, then --apply) — checklist:
+                    https://github.com/dishantghai/speky/blob/main/docs/v3/MIGRATION.md
+  Classic v2 flow   speky init "idea" → spec → plan → implement → complete → commit
+                    (these call an AI model — see "Choosing the AI model")
+
 Choosing the AI model (any provider):
   config --providers             List providers (OpenRouter, Nebius, OpenCode Go, Claude
                                  subscription, Ollama, ...) and whether their keys are set
@@ -20581,6 +20715,9 @@ Host mode (the calling agent is SPEKY's model — no API key needed):
   host status                    Show prompts waiting for an answer
   host show [ID]                 Print a waiting prompt
   host answer ID --file F        Deliver an answer (or pipe it on stdin)
+
+Agent workflow commands (v3) — any coding agent drives these; add --json for machine output.
+Each has its own help: `speky next --help`. Reference: https://github.com/dishantghai/speky/blob/main/docs/v3/CONTRACTS.md
 
 Exit codes: 0 ok · 1 failed · 2 bad usage · 4 needs an --answer · 130 interrupted
 
@@ -20743,6 +20880,11 @@ Examples:
         kwargs.setdefault("formatter_class", argparse.RawDescriptionHelpFormatter)
         return _add_parser(name, **kwargs)
     subparsers.add_parser = add_parser_with_global_options
+
+    # v3 agent-workflow commands are dispatched to speky_core before this parser runs; they are
+    # registered here only so `speky --help` lists them
+    for v3_name, v3_help in V3_COMMAND_HELP:
+        _add_parser(v3_name, help=v3_help, add_help=False)
     
     # init
     init_parser = subparsers.add_parser(
@@ -20833,11 +20975,15 @@ manifests use --from-project automatically.""")
     validate_parser = subparsers.add_parser("validate-spec", help="Validate a spec for quality and completeness")
     validate_parser.add_argument("spec_ref", help="Spec ID (e.g., 001) or file path")
     validate_parser.add_argument("--quick", "-q", action="store_true", help="Quick mode - show summary without interactive review")
+    validate_parser.add_argument("--force", action="store_true",
+                                 help="Run another round even if the spec is unchanged or the round cap is reached")
     
     # validate-story
     validate_story_parser = subparsers.add_parser("validate-story", help="Validate a story for completeness (AI-powered)")
     validate_story_parser.add_argument("story_ref", help="Story ID (e.g., F001) or file path")
     validate_story_parser.add_argument("--quick", "-q", action="store_true", help="Quick mode - show summary without interactive review")
+    validate_story_parser.add_argument("--force", action="store_true",
+                                       help="Run another round even if unchanged or the round cap is reached")
     
     # adopt (supports both specs and stories)
     adopt_parser = subparsers.add_parser("adopt", help="Adopt an IDE-created spec or story into SPEKY tracking")
@@ -21041,9 +21187,9 @@ manifests use --from-project automatically.""")
         elif args.command == "backlog":
             success = speky.cmd_backlog()
         elif args.command == "validate-spec":
-            success = speky.cmd_validate_spec(args.spec_ref, quick=args.quick)
+            success = speky.cmd_validate_spec(args.spec_ref, quick=args.quick, force=args.force)
         elif args.command == "validate-story":
-            success = speky.cmd_validate_story(args.story_ref, quick=args.quick)
+            success = speky.cmd_validate_story(args.story_ref, quick=args.quick, force=args.force)
         elif args.command == "adopt":
             success = speky.cmd_adopt(args.item_id, item_type=args.item_type, skip_validation=args.skip_validation)
         elif args.command == "import":

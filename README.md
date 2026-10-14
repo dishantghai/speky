@@ -1,8 +1,12 @@
-# SPEKY v2
+# SPEKY
 
-**AI-Assisted Scalable Engineering Framework**
+**Spec-driven development for AI coding agents**
 
-A thin orchestration layer for AI-assisted software development. SPEKY manages context, generates specs, and integrates with your IDE (Windsurf, Cursor, Claude Code).
+SPEKY keeps your project's changes, requirements, decisions and evidence in `.speky/`, and
+your coding agent (Claude Code, Codex, Cursor, OpenCode, …) does the work. Validation converges
+instead of looping, nothing counts as done without evidence, and specs stay true after the code
+ships. The classic v2 commands (init → spec → plan → implement), which call an AI model
+themselves, are all still here.
 
 ## Installation
 
@@ -30,25 +34,43 @@ sudo mv speky-macos-arm64 /usr/local/bin/speky
 
 ## Quick Start
 
+### With a coding agent (recommended, no API key needed)
+
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."   # or any provider — see "Models" below
+cd your-project && git init            # if it isn't a repo yet
+speky setup claude-code                # or: codex, agents-md
+```
 
-# Initialize project
-speky init "Your product idea"
+That installs SPEKY's skills, a 10-line block in `CLAUDE.md` / `AGENTS.md`, and (Claude Code)
+a session hook that loads the workflow. Then just ask your agent for what you want built.
+Behind the scenes it follows `speky next`:
 
-# Create feature spec
-speky spec "Feature name"
+```bash
+speky next --json                      # the one next action, the skill to use, when it's done
+speky new spec "Paste a video link"    # a change with requirements ### R1: + WHEN/THEN scenarios
+speky check 001                        # rubric + findings ledger; says when validation has converged
+speky start 001                        # records the base commit
+speky evidence 001 R1 --status met --evidence "tests/test_import.py::test_valid_link"
+speky verify 001 --run "pytest -q"     # passes only with evidence for every requirement
+speky archive 001                      # merges the change into living specs (.speky/capabilities/)
+```
 
-# Generate implementation plan
-speky plan 001
+Set `verify_command` in `.speky/speky.yaml` once you have tests. Existing v2 project?
+`speky migrate` (dry run), then follow [docs/v3/MIGRATION.md](docs/v3/MIGRATION.md).
+Reference: [docs/v3/CONTRACTS.md](docs/v3/CONTRACTS.md) · design notes: [docs/v3/PLAN.md](docs/v3/PLAN.md).
 
-# Implement
-speky implement 001
+### Classic flow (SPEKY calls the model itself)
 
-# Mark complete and commit
-speky complete 001 --commit
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."   # or any provider — see "Models" below; or --llm claude-code/sonnet
 
-# Push to remote
+speky init "Your product idea"           # product profile + tech stack
+speky spec "Feature name"                # feature spec
+speky validate-spec 001                  # converges: at most 2 rounds unless --force
+speky plan 001                           # implementation plan
+speky implement 001                      # hands the context to your IDE
+speky complete 001                       # drift check, mark complete
+speky commit 001                         # commit with a generated message
 git push
 ```
 

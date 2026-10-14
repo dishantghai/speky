@@ -44,7 +44,7 @@ def test_legacy_speky_file_keeps_user_rules_and_is_backed_up(tmp_path):
     text = write(tmp_path)
     assert "- Never touch the payments module" in text.split(BEGIN)[0]
     assert "old rules" not in text and "Old product" not in text
-    backups = list((tmp_path / ".speky" / "backups").iterdir())
+    backups = [p for p in (tmp_path / ".speky" / "backups").iterdir() if p.name != ".gitignore"]
     assert len(backups) == 1 and backups[0].read_text() == legacy
 
 

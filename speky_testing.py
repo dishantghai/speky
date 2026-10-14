@@ -3527,9 +3527,23 @@ speky complete 003
             self.project_root / "CLAUDE.md",
         ]
         
+        v3_managed = self._v3_managed_rules_files()
         for rules_file in rules_files:
-            if rules_file.exists():
+            if rules_file.exists() and rules_file.name not in v3_managed:
                 self._merge_context_to_file(rules_file, testing_context)
+
+    def _v3_managed_rules_files(self) -> set:
+        """Instruction files owned by `speky setup` (v3). v3 points agents to the testing context
+        through `speky prime` instead of copying it into the file on every command."""
+        path = self.project_root / ".speky" / "speky.yaml"
+        if not path.exists():
+            return set()
+        try:
+            import yaml
+            harnesses = (yaml.safe_load(path.read_text()) or {}).get("harnesses") or []
+        except Exception:
+            return set()
+        return {"CLAUDE.md"} if "claude-code" in harnesses else set()
     
     def _merge_context_to_file(self, rules_file: Path, testing_context: str):
         """Merge testing context into a specific rules file"""
@@ -3541,10 +3555,16 @@ speky complete 003
         
         # Check if testing section exists
         if start_marker in existing:
-            # Replace existing section
+            # Replace the existing section, consuming its end marker(s) so they don't pile up
             import re
-            pattern = f"{re.escape(start_marker)}.*?(?={re.escape(end_marker)}|$)"
-            new_content = re.sub(pattern, testing_context + "\n\n" + end_marker + "\n", existing, flags=re.DOTALL)
+            pattern = (f"{re.escape(start_marker)}.*?(?:(?:{re.escape(end_marker)}\\s*)+|$)")
+            new_content = re.sub(pattern, lambda _: testing_context + "\n\n" + end_marker + "\n\n",
+                                 existing, count=1, flags=re.DOTALL)
+        elif "<!-- END SPEKY MANAGED BLOCK -->" in existing:
+            # Keep SPEKY text inside SPEKY's managed block, never in the user's part of the file
+            new_content = existing.replace(
+                "<!-- END SPEKY MANAGED BLOCK -->",
+                testing_context + "\n\n" + end_marker + "\n<!-- END SPEKY MANAGED BLOCK -->", 1)
         else:
             # Append at end (before USER RULES if exists)
             user_rules_marker = "# USER RULES"

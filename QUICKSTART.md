@@ -1,5 +1,9 @@
 # SPEKY v2: Quick Start Guide
 
+> **SPEKY v3 is available.** With a coding agent (Claude Code, Codex, Cursor, …) start with
+> `speky setup claude-code` — no API key needed. See the Quick Start in [README.md](README.md) and [docs/v3/MIGRATION.md](docs/v3/MIGRATION.md) for existing projects.
+> This guide covers the classic v2 commands, which still work unchanged.
+
 ## What is SPEKY v2?
 
 SPEKY v2 is a **thin orchestration layer** for AI-assisted software development. It manages context, generates specs, and hands off to your IDE (Windsurf, Cursor, Claude Code) for implementation.

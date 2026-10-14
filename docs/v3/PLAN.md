@@ -156,8 +156,11 @@ Every row must have a v3 home before v3 replaces v2. "How it changes" is the pro
 ## 3. Validation that converges (fixes the `validate-spec` loop)
 
 ### 3.1 Why v2 never stops finding gaps
-1. `ValidationSession.get_context_for_ai()` (`speky.py:227`) is defined but **never called** — skipped,
-   deferred and accepted gaps never reach the next prompt.
+1. Earlier findings never reach the validation prompt: `ValidationSession.get_context_for_ai()` is only
+   used by the per-gap suggestion helpers, `add_decision()` is never called, and handled action items
+   are deleted from `validation_actions.json` — so the next run raises the same gaps in new words.
+   *(Fixed in v3/build: v2 `validate-spec`/`validate-story` now use the v3 ledger, pass earlier
+   findings to the model, run at temperature 0, skip unchanged specs and stop at the round cap.)*
 2. Open-ended prompt ("Gaps", "Suggestions") with no severity, rubric, or definition of done.
 3. Temperature 0.7 → different findings each run.
 4. AI fixes lengthen the spec → more surface to criticise.
@@ -446,7 +449,7 @@ updated) in two different harnesses, with zero v2 capabilities lost (checked aga
 | Question | Decision |
 |---|---|
 | First harnesses | **Claude Code + Codex** (hook-capable + AGENTS.md/skills profiles). Cursor, Gemini CLI next. |
-| Code location | New package **`speky/`** in this repo, reusing `speky_llm.py`. v2 keeps shipping from `speky.py` until parity (§2.8). |
+| Code location | New package **`speky_core/`** in this repo (a `speky/` package would shadow `speky.py`, the v2 entry point). v3 commands are subcommands of the same `speky` CLI; v2 commands keep working on the same folders. |
 | ID style | **Sequential by default**, hash-suffixed IDs optional (teams/branches). |
 | Requirement format | **BMAD five-field kernel** (Why, Capabilities, Constraints, Non-goals, Success signal) for the change proposal; **OpenSpec `Requirement`/`Scenario`** with stable IDs for requirements. |
 
@@ -457,6 +460,41 @@ vertical slices; (5) pilot in both harnesses; (6) v2 → v3 migration.
 ### Still open
 - Which §4.2 modules come right after milestone 1.
 - Migration details for v2 `.speky/` projects.
+
+## 9. Status *(2026-10-14)*
+
+Branch `v3/build` (worktree `../speky-v3`); `main` is an ancestor, so it fast-forwards.
+
+**Done and verified**
+- v2 fixes (released in v0.5.1): collision-free IDs, `commit` without `git add -A`, VS Code rules to
+  `.github/copilot-instructions.md`, managed rules block; v2 `validate-spec`/`validate-story` converge.
+- v2 parity net: 23 end-to-end command tests with a scripted model (`tests/parity/`).
+- v3 core (`speky_core/`, CONTRACTS.md): state, `next`/`prime` protocol, rubric + ledger convergence,
+  evidence-gated `verify`, `archive` into living specs, decisions/memory/ADR/glossary, gates and
+  links, `setup` for claude-code / codex / agents-md, `migrate`. 95 tests in total.
+- Packaging: `speky_core` + skills ship in the wheel and the Nuitka binaries (build/release workflows).
+- Real-harness pilots (headless Claude Code, prompts with no SPEKY instructions):
+  1. small feature → story, assumptions recorded, tests first, evidence, verify, archive (30 turns,
+     $0.69); found 4 bugs, all fixed with regression tests;
+  2. change-sized request → spec, converged in 1 round, plan, 4 assumptions instead of stalling,
+     MODIFIED/ADDED living spec, verify, archive (24 turns, $0.60, no errors);
+  3. docstring typo → no SPEKY item, verified directly (5 turns, $0.18).
+  The SessionStart hook injected `speky prime` in every run.
+
+- spayce_electron migrated (branch `chore/speky-v3`, 2 commits, not pushed): CLAUDE.md 1,107 → 10
+  lines; 12 living-spec capabilities (69 requirements, valid); 12 suspect v2 completions checked by
+  an agent with the speky-migrate skill — 6 false alarms, 4 real gaps + 3 more found; 8 stories
+  filed; 4 of the agent's claims spot-checked in the code and confirmed. A fresh Claude Code session
+  then recommended the right next item unprompted. Bugs this surfaced were fixed in SPEKY:
+  migrate --done, CONTRACTS.md URL refs, v2 testing-context bloat + duplicate markers, v2
+  `sequence` crash on specs without `name`, self-ignoring backups, `speky capabilities` validator.
+
+**Not verified**
+- Codex live run (CLI not installed here); its files are covered by unit tests and the Agent
+  Skills format check.
+
+**Parity notes (§2.8)**: every v2 command still runs unchanged on the same folders; design, testing,
+phases, epics, import, poc-import keep their v2 implementation for now.
 
 ## 8. Sources
 - Beads — https://github.com/steveyegge/beads (docs: https://beads.gascity.com/)
