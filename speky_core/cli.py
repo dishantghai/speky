@@ -30,7 +30,7 @@ HELP = """SPEKY v3 commands (agent protocol; add --json to any of them):
   gate add|resolve | link      human/ci/pr gates; typed links
   prime [--hook-json]          workflow + state for an agent session
   setup <harness>              install skills + instructions (claude-code, codex, agents-md)
-  migrate [--apply]            bring a v2 project to v3 (dry run by default)
+  migrate [--apply|--done T]   bring a v2 project to v3 (dry run by default)
   set <id> --status S          manual status change"""
 
 
@@ -145,6 +145,8 @@ def _parser() -> argparse.ArgumentParser:
     sp.add_argument("--list", action="store_true")
     sp = add("migrate")
     sp.add_argument("--apply", action="store_true")
+    sp.add_argument("--done", default=None, metavar="TASK",
+                    help="mark a judgement task as handled (e.g. check_suspect_completions)")
     sp = add("set")
     sp.add_argument("id")
     sp.add_argument("--status", required=True,
@@ -270,6 +272,8 @@ def run(argv: List[str]) -> dict:
         if not project.dir.is_dir():
             raise SpekyError("not_initialized", f"No .speky/ folder in {project.root}.",
                              "Nothing to migrate; start with `speky init`.")
+        if args.done:
+            return migrate.mark_done(project, args.done)
         return migrate.apply(project) if args.apply else migrate.plan(project)
     if cmd == "set":
         item = project.find(args.id)

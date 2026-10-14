@@ -42,6 +42,9 @@ agent turn. v3 replaces it with a ~10-line block plus skills loaded on demand.
       `.speky/capabilities/<capability>/spec.md` describing what the code does **today**
       (`### <capability>-R<n>:` requirements with WHEN/THEN scenarios). Start with the areas you
       will change next; this can be done incrementally.
+- [ ] Mark each handled task: `speky migrate --done check_suspect_completions` (likewise
+      `add_requirement_ids`); `seed_living_specs` clears itself once capability specs exist and
+      `speky capabilities --json` reports `"valid": true`.
 - [ ] **Open items** (draft/ready/in_progress): `speky check <id>`; add `### R1:` requirement IDs
       and scenarios where the rubric asks. Don't rewrite intent.
 

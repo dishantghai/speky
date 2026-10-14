@@ -109,3 +109,14 @@ def test_setup_bootstraps_a_new_project(tmp_path, monkeypatch):
     assert (tmp_path / ".speky" / "speky.yaml").exists()
     assert (tmp_path / ".speky" / "capabilities").is_dir()
     assert cli("next")["action"] == "idle"
+
+
+def test_migrate_done_acknowledges_judgement_tasks(tmp_path, monkeypatch):
+    make_v2_project(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    cli("migrate", "--apply")
+    tasks = [j["task"] for j in cli("migrate")["judgement"]]
+    assert "check_suspect_completions" in tasks
+    out = cli("migrate", "--done", "check_suspect_completions")
+    assert "check_suspect_completions" not in out["remaining"]
+    assert cli("migrate", "--done", "nope", expect=1)["error"]["code"] == "unknown_migration_task"

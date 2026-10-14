@@ -87,6 +87,9 @@ def plan(project: Project) -> Dict:
     if no_ids:
         judgement.append({"task": "add_requirement_ids", "items": no_ids,
                           "detail": "Open items without `### R1:` requirements; run `speky check <id>`."})
+    done_tasks = set(project.config.get("migration_done", []) or []) \
+        if (project.dir / config.CONFIG_NAME).exists() else set()
+    judgement = [j for j in judgement if j["task"] not in done_tasks]
     harnesses = project.config.get("harnesses", []) if (project.dir / config.CONFIG_NAME).exists() else []
     if not harnesses:
         judgement.append({"task": "setup_harness",
@@ -130,3 +133,20 @@ def apply(project: Project) -> Dict:
     after = plan(project)
     return {"applied": applied, "remaining": after["pending"], "issues": after["issues"],
             "judgement": after["judgement"], "done": after["done"]}
+
+
+JUDGEMENT_TASKS = ("seed_living_specs", "check_suspect_completions", "add_requirement_ids", "setup_harness")
+
+
+def mark_done(project: Project, task: str) -> Dict:
+    """Record that a judgement task was handled, so `speky migrate` stops listing it."""
+    from .errors import SpekyError
+    if task not in JUDGEMENT_TASKS:
+        raise SpekyError("unknown_migration_task", f"No migration task '{task}'.",
+                         f"One of: {', '.join(JUDGEMENT_TASKS)}.")
+    if not (project.dir / config.CONFIG_NAME).exists():
+        raise SpekyError("not_migrated", "Run `speky migrate --apply` first.")
+    cfg = project.config
+    cfg["migration_done"] = sorted(set(cfg.get("migration_done", []) or []) | {task})
+    config.save(project.root, cfg)
+    return {"done": cfg["migration_done"], "remaining": [j["task"] for j in plan(project)["judgement"]]}
