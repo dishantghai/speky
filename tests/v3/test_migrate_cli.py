@@ -203,3 +203,15 @@ def test_migrate_moves_v2_design_into_the_standard_layout(tmp_path, monkeypatch)
     manifest = json.loads((d / "manifest.json").read_text())
     assert manifest["technology"] == "react" and manifest["conflicts"][0]["id"] == "C1"
     assert cli("migrate")["pending"] == []
+
+
+def test_capabilities_folder_survives_git(tmp_path, monkeypatch):
+    """An empty folder is not tracked by git: SPEKY keeps a README in it."""
+    monkeypatch.chdir(tmp_path)
+    cli("setup", "agents-md")
+    assert (tmp_path / ".speky" / "capabilities" / "README.md").exists()
+    (tmp_path / ".speky" / "capabilities" / "README.md").unlink()
+    (tmp_path / ".speky" / "capabilities").rmdir()          # what a fresh clone looks like without it
+    assert [s["step"] for s in cli("migrate")["pending"]] == ["create_capabilities"]
+    cli("migrate", "--apply")
+    assert (tmp_path / ".speky" / "capabilities" / "README.md").exists() and cli("migrate")["done"]

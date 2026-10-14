@@ -34,7 +34,7 @@ COMMANDS = {"capabilities", "task", "phases", "owner", "knowledge", "handoff", "
             "reset-deps", "fix-circular-deps", "decisions", "reconcile", "poc-import", "spec", "story",
             "renumber", "host", "sync", "run", "new", "state", "ready", "next", "check", "finding", "start", "evidence", "verify",
             "archive", "decide", "remember", "adr", "term", "gate", "link", "prime", "setup",
-            "migrate", "set", "layout"}
+            "migrate", "set", "layout", "tidy", "history"}
 
 HELP = """SPEKY: spec-driven development for AI coding agents.
 
@@ -61,12 +61,13 @@ Building
   design status|screen add|list|approve|supersede|review|link|add|analysis|conflict|resolve
 
 Memory and session
-  handoff  ·  checkpoint  ·  prime  ·  status | state | ready  ·  remember --topic  ·  knowledge
+  handoff  ·  checkpoint  ·  prime  ·  status | state | ready  ·  remember --topic  ·  knowledge [retire]
   decide  ·  adr  ·  owner add|done|list  ·  term  ·  refs  ·  capabilities  ·  import add|link|status|reconcile
 
 Setup
   setup <claude-code|codex|cursor|windsurf|vscode|antigravity|agents-md>  ·  config get|set|model|providers
   layout [--check] (where every non-code artifact lives)  ·  migrate [--apply|--done TASK]
+  tidy [--apply] (finished history → .speky/archive/)  ·  history <words> [--kind --since --git]
 
 v2 names that still work: adopt, validate-spec, validate-story (= check), sequence (= order),
   mark-foundation, reset-deps, fix-circular-deps, infer-deps (= deps …), decisions, epics, import-status,
@@ -107,7 +108,7 @@ def _parser() -> argparse.ArgumentParser:
     new_options(add("spec", help="create a spec (same as `new spec`)"))
     new_options(add("story", help="create a story (same as `new story`)"))
 
-    add("state")
+    add("state").add_argument("--all", action="store_true", help="include finished items and settings")
     add("ready")
     add("capabilities")
     sp = add("next")
@@ -196,6 +197,7 @@ def _parser() -> argparse.ArgumentParser:
     psub = sp.add_subparsers(dest="action")
     for name, help_ in (("list", "all phases"), ("status", "progress of every phase")):
         px = psub.add_parser(name, help=help_)
+        px.add_argument("--all", action="store_true", help="everything, including finished history")
         px.add_argument("--json", action="store_true")
     for name in ("show", "start", "check", "defer", "guide"):
         px = psub.add_parser(name)
@@ -257,6 +259,7 @@ def _parser() -> argparse.ArgumentParser:
     tl = tsub.add_parser("list")
     tl.add_argument("--phase", default=None)
     tl.add_argument("--status", default=None, choices=["todo", "doing", "done", "deferred"])
+    tl.add_argument("--all", action="store_true", help="everything, including finished history")
     tl.add_argument("--json", action="store_true")
 
     sp = add("owner")
@@ -275,9 +278,12 @@ def _parser() -> argparse.ArgumentParser:
     ol.add_argument("--json", action="store_true")
 
     sp = add("knowledge")
-    sp.add_argument("action", nargs="?", default="list", choices=["list", "show", "promote"])
+    sp.add_argument("action", nargs="?", default="list", choices=["list", "show", "promote", "retire"])
+    sp.add_argument("--entry", default=None, help="retire: the opening words of the entry")
+    sp.add_argument("--reason", default=None, help="retire: why it no longer holds")
     sp.add_argument("topic", nargs="?")
     sp.add_argument("--title", default=None, help="ADR title when promoting")
+    sp.add_argument("--all", action="store_true", help="everything, including finished history")
 
     sp = add("handoff")
     sp.add_argument("--file", default=None, help="notes with ## Summary/Done/Learned/Next/Watch out for")
@@ -291,11 +297,20 @@ def _parser() -> argparse.ArgumentParser:
     sp = add("checkpoint")
     sp.add_argument("--auto", action="store_true", help="called by a hook (no tests)")
     sp.add_argument("--run-tests", action="store_true")
+    sp.add_argument("--turn-start", action="store_true", help="hook: the owner sent a message")
+    sp.add_argument("--stop", action="store_true", help="hook: the agent is about to stop (checks records)")
 
     add("refs")
 
     sp = add("prime")
     sp.add_argument("--hook-json", action="store_true")
+    sp = add("tidy", help="move finished history to the dated archive (dry run unless --apply)")
+    sp.add_argument("--apply", action="store_true")
+    sp = add("history", help="search the records and the archive (disputes, revisions, backtracking)")
+    sp.add_argument("query")
+    sp.add_argument("--kind", default="all", choices=["all", "log", "tasks", "owner", "decisions", "knowledge", "changes"])
+    sp.add_argument("--since", default=None, help="YYYY-MM-DD")
+    sp.add_argument("--git", action="store_true", help="also search commit messages")
     sp = add("layout", help="where every non-code artifact lives (defaults and overrides)")
     sp.add_argument("--check", action="store_true", help="report artifacts kept where SPEKY doesn't look")
     sp = add("setup")
@@ -320,6 +335,7 @@ def _parser() -> argparse.ArgumentParser:
     sp.add_argument("--harness", default=None, help="also run `speky setup <harness>`")
 
     sp = add("status", help="items, phase, tasks and next action")
+    sp.add_argument("--all", action="store_true", help="everything, including finished history")
     sp = add("context", help="context packet for an item or a phase")
     sp.add_argument("id", nargs="?")
     sp.add_argument("--phase", default=None)
@@ -426,6 +442,7 @@ def _parser() -> argparse.ArgumentParser:
     s_add.add_argument("--group", default="", help="group folder under the screens root, e.g. run-view/v3")
     s_add.add_argument("--json", action="store_true")
     s_list = ssub.add_parser("list")
+    s_list.add_argument("--all", action="store_true", help="everything, including finished history")
     s_list.add_argument("--json", action="store_true")
     s_ap = ssub.add_parser("approve")
     s_ap.add_argument("id")
@@ -458,6 +475,7 @@ def _parser() -> argparse.ArgumentParser:
     gr.add_argument("--reason", required=True)
     gr.add_argument("--json", action="store_true")
     gs = gsub.add_parser("status")
+    gs.add_argument("--all", action="store_true", help="everything, including finished history")
     gs.add_argument("--json", action="store_true")
 
     sp = add("test", help="tests: init, run, coverage, gaps, link, red/green")
@@ -661,7 +679,7 @@ def run(argv: List[str]) -> dict:
                 "next": f"write {item.doc_path.relative_to(project.root)} (speky-propose skill), "
                         f"then `speky check {item.id}`"}
     if cmd == "state":
-        return protocol.state(project)
+        return protocol.state(project, everything=args.all)
     if cmd == "ready":
         return {"items": graph.ready(project)}
     if cmd == "capabilities":
@@ -702,9 +720,18 @@ def run(argv: List[str]) -> dict:
         return journal.remember(project, args.fact, args.topic, args.always or None, args.read_when)
     if cmd == "knowledge":
         if args.action == "list":
-            return {"topics": knowledge.topics(project)}
+            topics = knowledge.topics(project)
+            if not args.all:
+                topics = [{k: t[k] for k in ("topic", "title", "always", "read_when", "entries", "file")} for t in topics]
+            return {"topics": topics}
         if not args.topic:
             raise SpekyError("topic_required", "Name a topic.", "Run `speky knowledge` to list topics.")
+        if args.action == "retire":
+            from . import tidy
+            if not args.entry or not args.reason:
+                raise SpekyError("retire_needs_entry", "Say which entry and why.",
+                                 'speky knowledge retire <topic> --entry "<opening words>" --reason "<why>"')
+            return tidy.retire_knowledge(project, args.topic, args.entry, args.reason)
         if args.action == "show":
             path = knowledge.knowledge_dir(project) / f"{args.topic}.md"
             if not path.exists():
@@ -717,8 +744,13 @@ def run(argv: List[str]) -> dict:
             return phases_mod.set_order(project, args.ids)
         if action in ("list", "status"):
             cur = phases_mod.current(project)
-            return {"phases": [p.to_dict() for p in phases_mod.all_phases(project)],
-                    "current": cur.id if cur else None}
+            rows = [p.to_dict() for p in phases_mod.all_phases(project)]
+            if not args.all:
+                rows = [{"id": r["id"], "name": r["name"], "status": r["status"], "tasks": r.get("tasks"),
+                         "gate": f"{sum(d['verified'] for d in r['deliverables'])}/{len(r['deliverables'])} verified"}
+                        for r in rows]
+            return {"phases": rows, "current": cur.id if cur else None,
+                    **({} if args.all else {"more": "speky phases show <id> (or list --all) for detail"})}
         if action == "show":
             return phases_mod.get(project, args.id).to_dict()
         if action in ("add", "create"):
@@ -759,8 +791,16 @@ def run(argv: List[str]) -> dict:
             labels_ = [l.strip() for l in args.labels.split(",") if l.strip()]
             return tasks.add(args.text, args.phase, args.epic, args.parent, refs_, labels=labels_)
         if args.action == "list":
-            return {"tasks": tasks.list(args.status, args.phase)}
+            rows = tasks.list(args.status, args.phase)
+            if args.all or args.status:
+                return {"tasks": rows}
+            open_ = [t for t in rows if t["status"] in ("todo", "doing")]
+            return {"tasks": open_, "not_shown": {s: len([t for t in rows if t["status"] == s])
+                                                  for s in ("done", "deferred")},
+                    "more": "speky task list --all (or --status done) shows finished tasks"}
         if args.action == "show":
+            if not any(t["id"].lower() == args.id.lower() for t in tasks._tasks()) and tasks.archived(args.id):
+                return {**tasks.archived(args.id)[0], "archived": True}
             t = tasks.get(args.id)
             return {**tasks._view(t), "evidence": t.get("evidence", {}),
                     "children": [x["id"] for x in tasks.list() if x.get("parent") == t["id"]]}
@@ -810,6 +850,12 @@ def run(argv: List[str]) -> dict:
         return graph.add_link(project, project.find(args.id), args.type, args.to)
     if cmd == "prime":
         return protocol.prime_hook_json(project) if args.hook_json else protocol.prime(project)
+    if cmd == "tidy":
+        from . import tidy
+        return tidy.apply(project) if args.apply else tidy.plan(project)
+    if cmd == "history":
+        from . import tidy
+        return tidy.history(project, args.query, args.kind, args.since, args.git)
     if cmd == "layout":
         from . import layout as layout_mod
         return layout_mod.check(project) if args.check else {"layout": layout_mod.describe(project)}
@@ -853,10 +899,12 @@ def run(argv: List[str]) -> dict:
     if cmd in REMOVED:
         raise SpekyError("command_removed", f"`speky {cmd}` was removed.", REMOVED[cmd])
     if cmd == "status":
-        st = protocol.state(project)
-        cur = phases_mod.current(project)
-        return {**st, "phase": cur.to_dict() if cur else None, "next": protocol.next_action(project),
-                "tasks": Tasks(project).list(), "owner": OwnerActions(project).open_items()}
+        if args.all:
+            st = protocol.state(project, everything=True)
+            cur = phases_mod.current(project)
+            return {**st, "phase": cur.to_dict() if cur else None, "next": protocol.next_action(project),
+                    "tasks": Tasks(project).list(), "owner": OwnerActions(project).open_items()}
+        return protocol.status_summary(project)
     if cmd == "context":
         if args.phase:
             return context_mod.phase_packet(project, args.phase, args.full)
@@ -952,14 +1000,21 @@ def run(argv: List[str]) -> dict:
                 return design_mod.supersede(project, args.id, args.new)
             if sa == "review":
                 return design_mod.review(project, args.id, args.file, args.result)
-            return {"screens": [{k: v for k, v in s.items() if k != "_source"} for s in design_mod.screens(project)]}
+            rows = [{k: v for k, v in s.items() if k != "_source"} for s in design_mod.screens(project)]
+            if args.all:
+                return {"screens": rows}
+            live = [{k: s[k] for k in ("id", "title", "status", "group", "path")} for s in rows
+                    if s["status"] not in ("superseded", "rejected")]
+            return {"screens": live, "not_shown": {st: len([s for s in rows if s["status"] == st])
+                                                   for st in ("superseded", "rejected")},
+                    "more": "speky design screen list --all includes superseded and rejected screens"}
         if action == "analysis":
             return design_mod.record_analysis(project, args.file, args.analysis)
         if action == "conflict":
             return design_mod.add_conflict(project, args.type, args.location, args.existing, args.new, args.severity)
         if action == "resolve":
             return design_mod.resolve_conflict(project, args.conflict, args.value, args.reason)
-        return design_mod.status(project)
+        return design_mod.status(project, everything=getattr(args, "all", False))
     if cmd == "test":
         action = args.action or "status"
         if action == "init":
@@ -1034,8 +1089,52 @@ def run(argv: List[str]) -> dict:
     raise SpekyError("unknown_command", f"Unknown command {cmd}.")
 
 
+def _hook_payload() -> dict:
+    """The JSON a harness hook passes on stdin (empty when run by hand)."""
+    import select
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return {}
+        try:
+            ready = select.select([sys.stdin], [], [], 0.5)[0]
+        except (ValueError, OSError, TypeError, AttributeError):
+            ready = True  # not a real file (tests, wrappers): just read it
+        if not ready:
+            return {}
+        return json.loads(sys.stdin.read() or "{}")
+    except (ValueError, OSError, TypeError):
+        return {}
+
+
+def _turn_hook(argv: List[str]) -> int:
+    """Claude Code UserPromptSubmit / Stop / PreCompact hooks. Never fails the session: errors mean "allow"."""
+    payload = _hook_payload()
+    try:
+        project = Project.open(require=False)
+        if "--turn-start" in argv:
+            continuity.turn_start(project, payload.get("prompt") or payload.get("user_prompt") or "")
+        elif "--stop" in argv:
+            decision = continuity.stop_check(project, payload)
+            if decision:
+                print(json.dumps(decision))
+        elif not project.dir.is_dir():  # --auto outside a SPEKY project
+            if "--json" in argv:
+                print(json.dumps({"ok": True, "skipped": "not a SPEKY project"}))
+        else:  # --auto: checkpoint before compaction
+            snap = continuity.checkpoint(project, auto=True, transcript=payload.get("transcript_path"),
+                                         session=payload.get("session_id"))
+            if "--json" in argv:
+                print(json.dumps({"ok": True, "at": snap["at"], "head": snap["head"], "auto": True,
+                                  "in_flight": bool(snap.get("in_flight"))}))
+    except Exception:  # a hook must never break the agent's session
+        pass
+    return 0
+
+
 def main(argv: List[str] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv[:1] == ["checkpoint"] and ({"--stop", "--turn-start", "--auto"} & set(argv)):
+        return _turn_hook(argv)
     as_json = "--json" in argv
     try:
         result = run(argv)

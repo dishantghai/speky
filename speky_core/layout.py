@@ -36,6 +36,8 @@ ARTIFACTS = [
                                     "to knowledge topics and ADRs", False),
     ("research", ".speky/research/", "research notes not tied to one change (per change: research.md)", True),
     ("testing", ".speky/testing/", "recorded test runs (per machine)", False),
+    ("archive", ".speky/archive/<log|tasks|owner|decisions|knowledge>/", "finished history moved out of the working "
+     "records by `speky tidy`: dated, verbatim, indexed (index.md), searchable with `speky history`", False),
 ]
 DEFAULTS = {key: default for key, default, _, _ in ARTIFACTS}
 OVERRIDABLE = {key for key, _, _, can in ARTIFACTS if can}

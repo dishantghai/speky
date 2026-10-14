@@ -50,6 +50,7 @@ covered: where code goes is the project's business. Only the rows marked *overri
 | context | `.speky/context/` | v2 project documents (product, architecture, tech decisions) | — |
 | research | `.speky/research/` | research not tied to one change (per change: `research.md`) | `paths.research` |
 | testing | `.speky/testing/` | recorded test runs (per machine, git-ignored) | — |
+| archive | `.speky/archive/` (`log/`, `tasks/` + `tasks.json`, `owner/`, `decisions/`, `knowledge/`, `index.md`) | finished history moved by `speky tidy`, verbatim and dated (§15) | — |
 
 Also: `.speky/design/icons/`, `.speky/design/manifest.json` (technology, design conflicts, components),
 `.speky/checkpoint.json` (per machine, git-ignored), `.speky/backups/` (git-ignored).
@@ -275,7 +276,7 @@ Failures: `{"ok": false, "error": {"code": "...", "message": "...", "fix": "..."
 
 | Harness | Writes |
 |---|---|
-| `claude-code` | `.claude/skills/speky*/SKILL.md`; `.claude/settings.json` hooks: SessionStart (`startup|clear|compact`) → `speky prime --hook-json`, PreCompact → `speky checkpoint --auto`; minimal block in `CLAUDE.md` (or in `AGENTS.md` when `CLAUDE.md` only imports it) |
+| `claude-code` | `.claude/skills/speky*/SKILL.md`; `.claude/settings.json` hooks: SessionStart (`startup|clear|compact`) → `speky prime --hook-json`, PreCompact → `speky checkpoint --auto`, UserPromptSubmit → `speky checkpoint --turn-start`, Stop → `speky checkpoint --stop` (record check, §12); minimal block in `CLAUDE.md` (or in `AGENTS.md` when `CLAUDE.md` only imports it) |
 | `codex` | `.agents/skills/speky*/SKILL.md`; full block in `AGENTS.md` |
 | `cursor`, `windsurf` | `.agents/skills/`; full block in `AGENTS.md`; v2's `.cursorrules` / `.windsurfrules` cleaned (SPEKY part removed, your rules kept) |
 | `vscode` (alias `copilot`) | `.github/skills/`; full block in `.github/copilot-instructions.md` |
@@ -312,6 +313,21 @@ run lists only what is still pending.
 | `owner.md` | `speky owner add|done`, and the owner by hand (ticks, indented notes) | `prime` (open items + new notes) |
 | `knowledge/*.md` | `speky remember --topic` | `prime` (always topics; triggers of the rest) |
 
+**Nothing lives only in the chat (record check).** When the owner sends a message, SPEKY fingerprints its
+records by kind — owner (`owner.md`), decisions (`decisions.md`, ADRs), knowledge (`knowledge/`, glossary,
+AGENTS.md/CLAUDE.md), plan (backlog, phases, change documents, findings), state (`state.md`, `log.md`) — in
+`.speky/turn.json` (per machine), and notes what the message itself must leave behind: a standing
+instruction ("from now on…", "always/never…", not in questions) → knowledge; feedback ("confusing", "doesn't
+work"…) → plan or owner; an answer to an open "Decide:" item (named by ID or sharing its words) → owner; a
+link or account → knowledge. When the agent is about to stop, its reply is read too: hand-offs to the owner
+(actions, approvals, recommendations) → owner, decisions or plan; assumptions and promises ("I assumed…",
+"next I'll…") → decisions, plan or state. If a kind of record that should have changed did not, the stop is
+blocked once with the exact commands, or the agent says in one line why nothing needs recording. Unrelated
+edits do not count. Before compaction, `speky checkpoint --auto` also saves what was in flight — the owner's
+latest request and the agent's step list (TodoWrite / TaskCreate) — and `speky prime` shows it after
+compaction. Claude Code runs it through hooks; other harnesses get the same rule in
+their SPEKY block. `record_check: false` in `speky.yaml` turns it off.
+
 `speky handoff --summary … --done … --learned … --next … --watch … [--title …] [--commit] [--no-tests]`
 or `--file notes.md` (sections `## Summary`, `## Done`, `## Learned`, `## Next`, `## Watch out for`).
 It runs the verify command unless `--no-tests`. Under `agent_profile: team-maintainer` it commits the
@@ -343,3 +359,24 @@ search/write/edit files (confined to the repository, never `.git/`), any `speky`
 (the project's test commands and read-only git unless `--allow-shell`), `skill`, `ask_user` (needs a
 terminal; otherwise the model records an assumption), `finish`. It follows the same skills and
 `speky next` protocol as a coding agent. `speky run --next` works through `speky next` until idle.
+
+## 15. Context budget, progressive disclosure and the archive
+
+Default views are summaries (open and current work, counts for the rest); `--all`, `show <id>` and
+`context <id>` give detail. `speky tidy` (dry run) / `--apply` moves finished history to
+`.speky/archive/` under the rules in `speky.yaml`:
+
+```yaml
+tidy: {log_keep: 5, task_days: 30, owner_days: 14, decisions_keep: 100, auto: true}   # auto: at every handoff
+context: {prime_budget_tokens: 2500}
+```
+
+Archived entries are verbatim, keep their IDs and dates, and record when and under which rule they moved;
+`archive/index.md` lists files, counts and date ranges; IDs are never reused. `speky history <words>
+[--kind log|tasks|owner|decisions|knowledge|changes] [--since YYYY-MM-DD] [--git]` searches everything,
+newest first. `speky knowledge retire <topic> --entry "<opening words>" --reason "<why>"` retires one
+entry. Never archived: changes with their findings and evidence, living specs, phases, ADRs, design files,
+open work. `prime` adds a *Housekeeping* note when the session-start load or archivable history is over
+budget, and after the second compaction of a session advises a handoff and a fresh session. Rationale and
+measurements: PLAN.md §12.
+

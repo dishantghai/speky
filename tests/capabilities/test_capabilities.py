@@ -95,7 +95,8 @@ def test_plan_implement_complete_commit(repo):
 def test_status_view(project):
     spec(project)
     out = cli("status")
-    assert out["items"][0]["id"] == "001" and out["next"]["action"] in ("validate", "plan")
+    assert out["items"]["open"][0]["id"] == "001" and out["next"]["action"] in ("validate", "plan")
+    assert cli("status", "--all")["items"][0]["id"] == "001"
 
 
 def test_review_reports_completions_without_evidence(repo):
@@ -194,7 +195,8 @@ def test_design_assets_links_analysis_conflicts(project, tmp_path):
     assert cli("design", "status")["open_conflicts"][0]["id"] == c["id"]
     cli("design", "resolve", c["id"], "--value", "#112233", "--reason", "system wins")
     st = cli("design", "status")
-    assert st["open_conflicts"] == [] and st["screens"][0]["items"] == ["001"]
+    assert st["open_conflicts"] == [] and st["screens"]["draft"] == 1
+    assert cli("design", "status", "--all")["screens"][0]["items"] == ["001"]
     packet = cli("context", "001")
     assert any(l["layer"] == "design" and l.get("analysis") for l in packet["layers"])
 

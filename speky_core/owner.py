@@ -75,9 +75,17 @@ class OwnerActions:
         self.path.write_text("\n".join(self.lines).rstrip("\n") + "\n")
 
     def _next_id(self) -> str:
+        """Never reuses a number, also after items moved to the archive (counter in ids.json)."""
+        import json
+        from .items import write_json
         nums = [int(m.group(1)) for l in self.lines for m in [re.search(r"\bO(\d+)\b", l)]
                 if m and ITEM_RE.match(l)]
-        return f"O{max(nums, default=0) + 1}"
+        path = self.project.dir / "ids.json"
+        counters = json.loads(path.read_text()) if path.exists() else {}
+        n = max(nums + [int(counters.get("O", 0))]) + 1
+        counters["O"] = n
+        write_json(path, counters)
+        return f"O{n}"
 
     def assign_missing_ids(self) -> int:
         changed = 0
@@ -94,8 +102,13 @@ class OwnerActions:
         oid = self._next_id()
         new = [f"- [ ] {oid} {text}"] + ([f"  - {note}"] if note else [])
         # append at the end of the named section, creating it if needed
-        start = next((i for i, l in enumerate(self.lines)
-                      if SECTION_RE.match(l) and SECTION_RE.match(l).group(1).lower() == section.lower()), None)
+        names = [(i, SECTION_RE.match(l).group(1).lower()) for i, l in enumerate(self.lines)
+                 if SECTION_RE.match(l) and not l.startswith("###")]
+        want = section.lower()
+        # the exact section, else one whose heading starts with it ("Do soon" → "Do soon (cheap, …)")
+        start = next((i for i, n in names if n == want), None)
+        if start is None:
+            start = next((i for i, n in names if n.startswith(want)), None)
         if start is None:
             self.lines += ["", f"## {section}", ""] + new
         else:

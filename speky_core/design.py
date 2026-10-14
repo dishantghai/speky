@@ -455,7 +455,7 @@ def convert_legacy(project: Project) -> dict:
 
 
 # ---------------------------------------------------------------------------- status
-def status(project: Project) -> dict:
+def status(project: Project, everything: bool = False) -> dict:
     """Where the design lives, its screens, and which UI changes still need one."""
     from . import uxdesign
     data = _manifest(project)
@@ -474,7 +474,9 @@ def status(project: Project) -> dict:
     return {"design_system": uxdesign.design_system(project),
             "screens_dir": uxdesign.screen_dirs(project),
             "reviews_dir": _rel(project, reviews_dir(project)),
-            "screens": [{k: s[k] for k in ("id", "title", "status", "items", "path", "group")} for s in rows],
+            "screens": [{k: s[k] for k in ("id", "title", "status", "items", "path", "group")} for s in rows]
+            if everything else {st: len([s for s in rows if (s["status"] or "file") == st])
+                                for st in ("draft", "approved", "superseded", "rejected", "file")},
             "catalogues": catalogues,
             "playbooks": {k: v.get("skill") for k, v in playbook.items() if isinstance(v, dict)},
             "technology": data.get("technology"),

@@ -237,7 +237,14 @@ def test_claude_md_that_imports_agents_md_gets_the_block_in_agents_md(project):
     assert out["check"]["status"] == "current"
     assert (root / "CLAUDE.md").read_text() == "@AGENTS.md\n"
     agents = (root / "AGENTS.md").read_text()
-    assert agents.startswith("# How to work here") and "profile:full" in agents
+    # the session-start hook delivers the workflow, so the file keeps only the short block
+    assert agents.startswith("# How to work here") and "profile:minimal" in agents
+    harness.setup(project, "codex")   # a tool without hooks also reads AGENTS.md: it needs the full block
+    harness.setup(project, "claude-code")
+    assert "profile:full" in (root / "AGENTS.md").read_text()
+    assert harness.check(project, "claude-code")["status"] == "current"
+    harness.remove(project, "codex")
+    harness.setup(project, "claude-code")
     settings = json.loads((root / ".claude" / "settings.json").read_text())
     assert any("speky checkpoint --auto" in h["command"]
                for e in settings["hooks"]["PreCompact"] for h in e["hooks"])
@@ -359,7 +366,7 @@ def test_extra_skills_installed_for_each_harness(project, tmp_path_factory, monk
 
 def test_checkpoint_and_test_runs_are_git_ignored(repo):
     continuity.checkpoint(repo, run_tests=False)
-    assert (repo.dir / ".gitignore").read_text().splitlines()[1:] == ["checkpoint.json", "testing/runs.json"]
+    assert (repo.dir / ".gitignore").read_text().splitlines()[1:] == ["checkpoint.json", "testing/runs.json", "turn.json"]
     assert ".speky/checkpoint.json" not in git(repo.root, "status", "--porcelain", "--untracked-files=all")
 
 
@@ -598,3 +605,203 @@ def test_rejected_screens_and_reference_kind(project, tmp_path):
     cli("design", "screen", "add", "baseline", str(png), "--kind", "reference")
     item = spec(project, body=GOOD_SPEC.replace("## Requirements", "## Design\n- screen:variant-a\n\n## Requirements"))
     assert uxdesign.state(project, item)["broken"] == ["screen:variant-a (explored, not chosen)"]
+
+
+def test_a_clone_without_checkpoint_picks_up_from_the_committed_log(repo):
+    from speky_core import config
+    cfg = repo.config
+    cfg["agent_profile"] = "team-maintainer"
+    config.save(repo.root, cfg)
+    git(repo.root, "add", "-A")
+    git(repo.root, "commit", "-q", "-m", "setup")
+    continuity.handoff(repo, summary="where we are", next_=["do W2"], title="Layout moved", run_tests=False)
+    (repo.root / "x.py").write_text("x = 1\n")
+    git(repo.root, "add", "x.py")
+    git(repo.root, "commit", "-q", "-m", "later work")
+    (repo.dir / "checkpoint.json").unlink()          # another machine / a fresh clone
+    text = protocol.prime(repo)
+    assert '"Layout moved"' in text and "No handoff recorded" not in text
+    assert "1 commit(s) since the handoff" in text and "later work" in text
+
+
+def test_stop_hook_blocks_owner_advice_that_was_not_recorded(project):
+    continuity.turn_start(project, "what next?")
+    advice = {"last_assistant_message": "Things only you can do: create the remote. I'd defer W34. If you agree I'll start."}
+    out = continuity.stop_check(project, advice)
+    assert out["decision"] == "block" and "speky owner add" in out["reason"]
+    assert continuity.stop_check(project, {**advice, "stop_hook_active": True}) is None   # blocks once
+    assert continuity.stop_check(project, {"last_assistant_message": "Tests pass; done."}) is None
+    OwnerActions(project).add("Create the remote", "Do soon")                              # recorded this turn
+    assert continuity.stop_check(project, advice) is None
+    continuity.turn_start(project, "ok")
+    from speky_core import config
+    cfg = project.config
+    cfg["record_check"] = False
+    config.save(project.root, cfg)
+    assert continuity.stop_check(project, advice) is None
+
+
+def _stop(project, reply="Done."):
+    return continuity.stop_check(project, {"last_assistant_message": reply})
+
+
+def test_owner_instructions_must_be_remembered_and_questions_are_not_instructions(project):
+    continuity.turn_start(project, "From now on always refer to me as they. Why does the build always fail?")
+    out = _stop(project)
+    assert out and "--topic owner --always" in out["reason"] and "always" in out["reason"]
+    Tasks(project).add("unrelated")                       # a plan change does not record an instruction
+    assert _stop(project) is not None
+    journal.remember(project, "Refer to the owner as they", "owner", True)
+    assert _stop(project) is None
+    continuity.turn_start(project, "Why does the build always fail?")
+    assert _stop(project) is None
+
+
+def test_owner_feedback_answers_links_and_agent_assumptions(project):
+    continuity.turn_start(project, "The Runs panel is confusing and the tab is not auto-selected.")
+    assert "one task or finding per point" in _stop(project)["reason"]
+    Tasks(project).add("Runs panel: explain itself", labels=["ui"])
+    assert _stop(project) is None
+    OwnerActions(project).add("Decide: defer W34 until a real backend? (recommended: yes)", "Decide or provide")
+    continuity.turn_start(project, "yes, defer it")
+    assert "speky owner done <id>" in _stop(project)["reason"]
+    OwnerActions(project).set_done("O1", True, "owner: yes, defer")
+    assert _stop(project) is None
+    continuity.turn_start(project, "Use the Stitch project https://stitch.withgoogle.com/p/123 on my work account.")
+    reason = _stop(project)["reason"]
+    assert "--topic environment" in reason and "https://stitch.withgoogle.com/p/123" in reason
+    journal.remember(project, "Stitch baseline project: https://stitch.withgoogle.com/p/123", "environment")
+    assert _stop(project) is None
+    continuity.turn_start(project, "go on")
+    assert "--type assumption" in _stop(project, "I assumed the refund cap is 1,000.")["reason"]
+
+
+def test_in_flight_work_is_saved_before_compaction_and_shown_after(repo, tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    rows = [{"type": "user", "message": {"role": "user", "content": "Build the Layers editor screen"}},
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate",
+                                                           "input": {"subject": "Write the narrative"}}]}},
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate",
+                                                           "input": {"subject": "Generate in Stitch"}}]}},
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskUpdate",
+                                                           "input": {"taskId": "1", "status": "completed"}}]}}]
+    transcript.write_text("\n".join(json.dumps(r) for r in rows))
+    import io
+    from speky_core.cli import main as cli_main
+    import sys
+    old = sys.stdin
+    sys.stdin = io.StringIO(json.dumps({"transcript_path": str(transcript)}))
+    try:
+        assert cli_main(["checkpoint", "--auto"]) == 0
+    finally:
+        sys.stdin = old
+    text = protocol.prime(repo)
+    assert "Build the Layers editor screen" in text
+    assert "[x] Write the narrative; [ ] Generate in Stitch" in text
+    flight = continuity.in_flight_from_transcript(str(transcript))
+    assert flight["steps"][1] == {"step": "Generate in Stitch", "status": "pending"}
+
+
+def test_owner_add_finds_a_section_by_the_start_of_its_heading(project):
+    (project.dir / "owner.md").write_text("# Owner\n\n## Do soon (cheap, and they get harder later)\n\n- [ ] O1 Reserve names\n\n## People\n")
+    OwnerActions(project).add("Create the remote", "Do soon")
+    text = (project.dir / "owner.md").read_text()
+    assert text.count("## Do soon") == 1 and "- [ ] O1 Reserve names\n- [ ] O2 Create the remote" in text
+
+
+def test_answers_are_recognised_anywhere_in_the_message(project):
+    OwnerActions(project).add("Decide: defer W34 (Layers editor) until a real backend is ported? (recommended: yes)",
+                              "Decide or provide")
+    OwnerActions(project).add("Decide: which backend to port first?", "Decide or provide")
+    assert continuity.owner_signals(project, "About deferring W34 until a real backend is ported: yes, defer it.") \
+        == {"answer": ["O1"]}
+    assert continuity.owner_signals(project, "O2: go with the claims API") == {"answer": ["O2"]}
+    assert "answer" not in continuity.owner_signals(project, "What is W55 about?")
+    continuity.turn_start(project, "About deferring W34 until a real backend is ported: yes, defer it.")
+    assert "found: O1" in _stop(project)["reason"]
+
+
+def test_default_views_are_compact_and_all_shows_everything(project):
+    for i in range(3):
+        Tasks(project).add(f"task {i}")
+    Tasks(project).set_status("W1", "done")
+    out = cli("task", "list")
+    assert [t["id"] for t in out["tasks"]] == ["W2", "W3"] and out["not_shown"]["done"] == 1
+    assert len(cli("task", "list", "--all")["tasks"]) == 3
+    a, b = spec(project, "A"), spec(project, "B")
+    a.update_status(status="archived")
+    st = cli("state")
+    assert [i["id"] for i in st["items"]] == [b.id] and st["finished_not_shown"] == 1 and "config" not in st
+    assert len(cli("state", "--all")["items"]) == 2
+
+
+def test_tidy_archives_history_readably_and_nothing_is_lost(repo):
+    from speky_core import config, tidy
+    cfg = repo.config
+    cfg["tidy"] = {"decisions_keep": 2, "owner_days": 0, "auto": False}
+    config.save(repo.root, cfg)
+    # a completed phase with finished tasks, an open phase with an open task
+    phases.add(repo, "Done phase", "p0")
+    Tasks(repo).add("old work", phase="p0")
+    Tasks(repo).set_status("W1", "done", "shipped in 2026-10")
+    phases.set_status(repo, "p0", "done")
+    phases.add(repo, "Current", "p1")
+    phases.set_status(repo, "p1", "doing")
+    Tasks(repo).add("current work", phase="p1")
+    for i in range(7):
+        continuity.handoff(repo, summary=f"s{i}", title=f"Session {i}", run_tests=False, commit=False)
+    OwnerActions(repo).add("Reserve the name", "Do soon")
+    OwnerActions(repo).set_done("O1", True, "done by owner")
+    for i in range(3):
+        journal.decide(repo, f"decision {i}")
+    before = {f: (repo.dir / f).read_text() for f in ("log.md", "owner.md", "decisions.md")}
+    p = tidy.plan(repo)["moves"]
+    assert p == {"log": 2, "tasks": 1, "owner": 1, "decisions": 1}
+    out = tidy.apply(repo)["archived"]
+    assert tidy.plan(repo)["moves"] == {}   # a second run moves nothing more
+    assert out["tasks"] == ["W1"] and out["owner"] == ["O1"] and out["decisions"] == ["D1"]
+    a = repo.dir / "archive"
+    # nothing lost: every archived entry is in the archive verbatim, with when/why
+    assert "## " in (a / "log" / f"{continuity.now()[:7]}.md").read_text()
+    assert "Session 0" in (a / "log" / f"{continuity.now()[:7]}.md").read_text()
+    assert "Session 0" not in (repo.dir / "log.md").read_text() and "Session 6" in (repo.dir / "log.md").read_text()
+    assert "W1 old work" in (a / "tasks" / "p0.md").read_text() and "shipped in 2026-10" in (a / "tasks" / "p0.md").read_text()
+    assert "- [x] O1 Reserve the name" in next((a / "owner").glob("*.md")).read_text()
+    assert "D1: decision 0" in next((a / "decisions").glob("*.md")).read_text()
+    assert "archived" in (a / "tasks" / "p0.md").read_text() and (a / "index.md").exists()
+    # still findable; IDs never reused
+    assert cli("task", "show", "W1")["archived"] is True
+    assert [t["id"] for t in Tasks(repo).list()] == ["W2"]
+    assert journal.decisions(repo)[0].startswith("20") and len(journal.decisions(repo)) == 3
+    assert OwnerActions(repo).add("Next", "Do soon")["id"] == "O2"
+    assert journal.decide(repo, "later")["id"] == "D4"
+    assert Tasks(repo).add("new")["id"] == "W3"
+    hits = cli("history", "Session 0")["hits"]
+    assert hits and hits[0]["archived"] and hits[0]["date"]
+    assert "current work" in (repo.dir / "tasks.md").read_text()
+
+
+def test_knowledge_retire_keeps_the_entry_and_the_reason(project):
+    journal.remember(project, "Overhead is ~1.8 ms per step", "measurements")
+    journal.remember(project, "Overhead is ~0.5 ms per step after W64", "measurements")
+    cli("knowledge", "retire", "measurements", "--entry", "Overhead is ~1.8", "--reason", "superseded by W64")
+    assert "1.8 ms" not in (project.dir / "knowledge" / "measurements.md").read_text()
+    archived = (project.dir / "archive" / "knowledge" / "measurements.md").read_text()
+    assert "1.8 ms" in archived and "superseded by W64" in archived
+
+
+def test_prime_warns_when_records_or_start_load_outgrow_their_budget(project):
+    from speky_core import config
+    cfg = project.config
+    cfg["context"] = {"prime_budget_tokens": 50}
+    config.save(project.root, cfg)
+    assert "## Housekeeping" in protocol.prime(project) and "budget 50" in protocol.prime(project)
+
+
+def test_handoff_tidies_by_default(repo):
+    phases.add(repo, "Done phase", "p0")
+    Tasks(repo).add("old work", phase="p0")
+    Tasks(repo).set_status("W1", "done")
+    phases.set_status(repo, "p0", "done")
+    out = continuity.handoff(repo, summary="s", title="t", run_tests=False, commit=False)
+    assert out["tidied"] == {"tasks": ["W1"]}

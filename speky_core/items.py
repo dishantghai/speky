@@ -118,6 +118,17 @@ class Project:
         self.stories_dir = self.dir / "stories"
         self.capabilities_dir = self.dir / "capabilities"
 
+    CAPABILITIES_README = ("# Living specs\n\nOne folder per capability: `<capability>/spec.md` says how the system behaves "
+                           "now. Changes update them when they are archived (`speky archive`). This file keeps the "
+                           "folder in git while it is empty.\n")
+
+    def ensure_capabilities_dir(self) -> None:
+        """Create `.speky/capabilities/` with a README, so git keeps the folder even while it is empty."""
+        self.capabilities_dir.mkdir(parents=True, exist_ok=True)
+        readme = self.capabilities_dir / "README.md"
+        if not readme.exists():
+            readme.write_text(self.CAPABILITIES_README)
+
     @classmethod
     def open(cls, start: Path = None, require: bool = True) -> "Project":
         project = cls(config.find_root(start))

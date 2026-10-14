@@ -24,7 +24,16 @@ def decide(project: Project, text: str, type_: str = "decision", ref: str = None
         project.find(ref)
     path = project.dir / "decisions.md"
     existing = path.read_text() if path.exists() else ""
-    number = len(re.findall(r"^- \S+ \[\w+\] D\d+:", existing, re.MULTILINE)) + 1
+    import json
+    from .items import write_json
+    ids_path = project.dir / "ids.json"
+    counters = json.loads(ids_path.read_text()) if ids_path.exists() else {}
+    used = [int(n) for n in re.findall(r"^- \S+ \[\w+\] D(\d+):", existing, re.MULTILINE)]
+    if not used and existing:  # entries written before IDs were counted
+        used = [len(re.findall(r"^- \S+ \[\w+\] D\d+:", existing, re.MULTILINE))]
+    number = max(used + [int(counters.get("D", 0))]) + 1
+    counters["D"] = number
+    write_json(ids_path, counters)
     entry = f"- {date.today().isoformat()} [{type_}] D{number}: {' '.join(text.split())}"
     if ref:
         entry += f" (ref: {ref})"
@@ -35,9 +44,10 @@ def decide(project: Project, text: str, type_: str = "decision", ref: str = None
 
 def decisions(project: Project, ref: str = None) -> list:
     path = project.dir / "decisions.md"
-    if not path.exists():
+    files = sorted((project.dir / "archive" / "decisions").glob("*.md")) + ([path] if path.exists() else [])
+    if not files:
         return []
-    lines = [l[2:] for l in path.read_text().splitlines() if re.match(r"^- \S+ \[\w+\] D\d+:", l)]
+    lines = [l[2:] for f in files for l in f.read_text().splitlines() if re.match(r"^- \S+ \[\w+\] D\d+:", l)]
     return [l for l in lines if not ref or f"(ref: {ref})" in l]
 
 

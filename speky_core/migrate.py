@@ -21,8 +21,8 @@ def plan(project: Project) -> Dict:
     issues: List[dict] = []
     if not (project.dir / config.CONFIG_NAME).exists():
         steps.append({"step": "create_config", "detail": f"create .speky/{config.CONFIG_NAME}"})
-    if not project.capabilities_dir.exists():
-        steps.append({"step": "create_capabilities", "detail": "create .speky/capabilities/"})
+    if not (project.capabilities_dir / "README.md").exists() and not any(project.capabilities_dir.glob("*/spec.md")):
+        steps.append({"step": "create_capabilities", "detail": "create .speky/capabilities/ (with a README so git keeps it)"})
 
     seen: Dict[str, str] = {}
     suspect, no_ids, open_items = [], [], []
@@ -166,7 +166,7 @@ def apply(project: Project) -> Dict:
         if step["step"] == "create_config":
             config.save(project.root, dict(config.DEFAULTS))
         elif step["step"] == "create_capabilities":
-            project.capabilities_dir.mkdir(parents=True, exist_ok=True)
+            project.ensure_capabilities_dir()
             (project.capabilities_dir / "README.md").write_text(
                 "# Living specs\n\nOne folder per capability: `<capability>/spec.md` describes how the "
                 "system behaves **now**. Changes update them through `deltas/` when archived "
