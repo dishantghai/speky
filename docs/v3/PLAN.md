@@ -481,6 +481,14 @@ Branch `v3/build` (worktree `../speky-v3`); `main` is an ancestor, so it fast-fo
   3. docstring typo → no SPEKY item, verified directly (5 turns, $0.18).
   The SessionStart hook injected `speky prime` in every run.
 
+- spayce_electron migrated (branch `chore/speky-v3`, 2 commits, not pushed): CLAUDE.md 1,107 → 10
+  lines; 12 living-spec capabilities (69 requirements, valid); 12 suspect v2 completions checked by
+  an agent with the speky-migrate skill — 6 false alarms, 4 real gaps + 3 more found; 8 stories
+  filed; 4 of the agent's claims spot-checked in the code and confirmed. A fresh Claude Code session
+  then recommended the right next item unprompted. Bugs this surfaced were fixed in SPEKY:
+  migrate --done, CONTRACTS.md URL refs, v2 testing-context bloat + duplicate markers, v2
+  `sequence` crash on specs without `name`, self-ignoring backups, `speky capabilities` validator.
+
 **Not verified**
 - Codex live run (CLI not installed here); its files are covered by unit tests and the Agent
   Skills format check.

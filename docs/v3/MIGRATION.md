@@ -53,8 +53,13 @@ agent turn. v3 replaces it with a ~10-line block plus skills loaded on demand.
 - [ ] `speky next --json` returns a sensible action.
 - [ ] `speky prime` prints a short workflow summary.
 - [ ] v2 still works: `speky status`, `speky sequence`.
+- [ ] `speky capabilities --json` → `"valid": true`.
+- [ ] Rule files are stable: note `shasum CLAUDE.md`, run a few v2 commands (`speky status`,
+      `speky sequence`), and check the hash didn't change; `speky setup <harness> --check` → current.
 - [ ] A fresh agent session in the repo picks up SPEKY (Claude Code: the SessionStart hook runs
-      `speky prime`).
+      `speky prime`) — e.g. `claude -p "What should I work on next? Don't change anything."`
+- [ ] Spot-check the agent's judgement: for 3–4 filed gap stories, confirm the cited code really
+      shows the gap.
 
 ## 6. Commit
 - [ ] `speky decide "Migrated to SPEKY v3" --type event`
