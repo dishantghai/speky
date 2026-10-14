@@ -92,6 +92,7 @@ def _strip_v2_rules(project: Project, path: Path, text: str) -> (str, str):
     if "# SPEKY Project Rules" in text and "# USER RULES" in text:
         backup_dir = project.dir / "backups"
         backup_dir.mkdir(parents=True, exist_ok=True)
+        (backup_dir / ".gitignore").write_text("# local safety copies; git history already has the originals\n*\n")
         backup = backup_dir / f"{path.name.lstrip('.')}.{datetime.now():%Y%m%d-%H%M%S}.bak"
         backup.write_text(text)
         user = _legacy_user_rules(text)

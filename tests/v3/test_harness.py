@@ -56,8 +56,9 @@ def test_legacy_v2_rules_file_is_replaced_and_backed_up(project):
     claude = (root / "CLAUDE.md").read_text()
     assert "huge rules" not in claude and "- Use pnpm, never npm" in claude
     assert len(claude.splitlines()) < 30
-    backups = list((project.dir / "backups").iterdir())
+    backups = [p for p in (project.dir / "backups").iterdir() if p.name != ".gitignore"]
     assert backups and backups[0].read_text() == LEGACY_V2
+    assert (project.dir / "backups" / ".gitignore").read_text().strip().endswith("*")
     ctx = json.loads((project.dir / "context" / "context.json").read_text())
     assert ctx["enabled_ides"] == ["windsurf"]
 

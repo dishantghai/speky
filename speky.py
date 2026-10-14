@@ -3138,6 +3138,7 @@ class IDEIntegration:
         elif self._is_legacy_speky_file(existing):
             backup_dir = self.project_root / SPEKY_DIR / "backups"
             backup_dir.mkdir(parents=True, exist_ok=True)
+            (backup_dir / ".gitignore").write_text("# local safety copies; git history already has the originals\n*\n")
             stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
             backup = backup_dir / f"{filepath.name.lstrip('.')}.{stamp}.bak"
             backup.write_text(existing)
