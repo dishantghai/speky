@@ -149,9 +149,12 @@ def state(project: Project, item: Item) -> dict:
             cited.append(s["path"])
             if s["status"] == "draft":
                 unapproved.append(s["id"])
+    not_needed = bool(NOT_NEEDED_RE.search(body))
     return {"ui": is_ui(project, item), "section": bool(body), "cited": list(dict.fromkeys(cited)),
-            "links": links, "broken": broken, "outside": outside, "unapproved": sorted(set(unapproved)),
-            "not_needed": bool(NOT_NEEDED_RE.search(body)),
+            "links": links, "broken": broken, "outside": outside,
+            # screens cited only as a reference ("no new design needed") need no new approval
+            "unapproved": [] if not_needed else sorted(set(unapproved)),
+            "not_needed": not_needed,
             "to_design": bool(TO_DESIGN_RE.search(body)) or not body.strip(),
             "system": design_system(project)}
 

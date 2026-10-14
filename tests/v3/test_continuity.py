@@ -542,3 +542,14 @@ def test_override_screen_folder_with_flat_files_is_citable(project):
     st = uxdesign.state(project, item)
     assert st["cited"] == ["ux/Browser Tab Bar.png"] and st["outside"] == [] and st["broken"] == []
 
+
+
+def test_reference_screens_need_no_new_approval(project, tmp_path):
+    from speky_core import uxdesign
+    png = tmp_path / "tab.png"
+    png.write_bytes(b"png")
+    cli("design", "screen", "add", "browser-tab-bar", str(png))
+    item = spec(project, body=GOOD_SPEC.replace("## Requirements",
+                "## Design\nNo new design needed: behaviour fix; tab bar as in screen:browser-tab-bar.\n\n## Requirements"))
+    st = uxdesign.state(project, item)
+    assert st["cited"] == [".speky/design/screens/browser-tab-bar"] and st["unapproved"] == []
