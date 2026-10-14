@@ -618,7 +618,7 @@ def test_a_clone_without_checkpoint_picks_up_from_the_committed_log(repo):
 
 
 def test_stop_hook_blocks_owner_advice_that_was_not_recorded(project):
-    continuity.turn_start(project)
+    continuity.turn_start(project, "what next?")
     advice = {"last_assistant_message": "Things only you can do: create the remote. I'd defer W34. If you agree I'll start."}
     out = continuity.stop_check(project, advice)
     assert out["decision"] == "block" and "speky owner add" in out["reason"]
@@ -626,24 +626,73 @@ def test_stop_hook_blocks_owner_advice_that_was_not_recorded(project):
     assert continuity.stop_check(project, {"last_assistant_message": "Tests pass; done."}) is None
     OwnerActions(project).add("Create the remote", "Do soon")                              # recorded this turn
     assert continuity.stop_check(project, advice) is None
-    continuity.turn_start(project)                                                         # next turn, nothing new
+    continuity.turn_start(project, "ok")
+    from speky_core import config
     cfg = project.config
     cfg["record_check"] = False
-    from speky_core import config
     config.save(project.root, cfg)
     assert continuity.stop_check(project, advice) is None
 
 
-def test_stop_hook_cli_reads_stdin_and_never_fails(project, monkeypatch, capsys):
+def _stop(project, reply="Done."):
+    return continuity.stop_check(project, {"last_assistant_message": reply})
+
+
+def test_owner_instructions_must_be_remembered_and_questions_are_not_instructions(project):
+    continuity.turn_start(project, "From now on always refer to me as they. Why does the build always fail?")
+    out = _stop(project)
+    assert out and "--topic owner --always" in out["reason"] and "always" in out["reason"]
+    Tasks(project).add("unrelated")                       # a plan change does not record an instruction
+    assert _stop(project) is not None
+    journal.remember(project, "Refer to the owner as they", "owner", True)
+    assert _stop(project) is None
+    continuity.turn_start(project, "Why does the build always fail?")
+    assert _stop(project) is None
+
+
+def test_owner_feedback_answers_links_and_agent_assumptions(project):
+    continuity.turn_start(project, "The Runs panel is confusing and the tab is not auto-selected.")
+    assert "one task or finding per point" in _stop(project)["reason"]
+    Tasks(project).add("Runs panel: explain itself", labels=["ui"])
+    assert _stop(project) is None
+    OwnerActions(project).add("Decide: defer W34 until a real backend? (recommended: yes)", "Decide or provide")
+    continuity.turn_start(project, "yes, defer it")
+    assert "speky owner done <id>" in _stop(project)["reason"]
+    OwnerActions(project).set_done("O1", True, "owner: yes, defer")
+    assert _stop(project) is None
+    continuity.turn_start(project, "Use the Stitch project https://stitch.withgoogle.com/p/123 on my work account.")
+    reason = _stop(project)["reason"]
+    assert "--topic environment" in reason and "https://stitch.withgoogle.com/p/123" in reason
+    journal.remember(project, "Stitch baseline project: https://stitch.withgoogle.com/p/123", "environment")
+    assert _stop(project) is None
+    continuity.turn_start(project, "go on")
+    assert "--type assumption" in _stop(project, "I assumed the refund cap is 1,000.")["reason"]
+
+
+def test_in_flight_work_is_saved_before_compaction_and_shown_after(repo, tmp_path):
+    transcript = tmp_path / "t.jsonl"
+    rows = [{"type": "user", "message": {"role": "user", "content": "Build the Layers editor screen"}},
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate",
+                                                           "input": {"subject": "Write the narrative"}}]}},
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskCreate",
+                                                           "input": {"subject": "Generate in Stitch"}}]}},
+            {"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "TaskUpdate",
+                                                           "input": {"taskId": "1", "status": "completed"}}]}}]
+    transcript.write_text("\n".join(json.dumps(r) for r in rows))
     import io
     from speky_core.cli import main as cli_main
-    monkeypatch.setattr("sys.stdin", io.StringIO("{}"))
-    assert cli_main(["checkpoint", "--turn-start"]) == 0
-    monkeypatch.setattr("sys.stdin", io.StringIO('{"last_assistant_message": "You need to approve the design."}'))
-    assert cli_main(["checkpoint", "--stop"]) == 0
-    assert '"decision": "block"' in capsys.readouterr().out
-    monkeypatch.setattr("sys.stdin", io.StringIO("not json"))
-    assert cli_main(["checkpoint", "--stop"]) == 0
+    import sys
+    old = sys.stdin
+    sys.stdin = io.StringIO(json.dumps({"transcript_path": str(transcript)}))
+    try:
+        assert cli_main(["checkpoint", "--auto"]) == 0
+    finally:
+        sys.stdin = old
+    text = protocol.prime(repo)
+    assert "Build the Layers editor screen" in text
+    assert "[x] Write the narrative; [ ] Generate in Stitch" in text
+    flight = continuity.in_flight_from_transcript(str(transcript))
+    assert flight["steps"][1] == {"step": "Generate in Stitch", "status": "pending"}
 
 
 def test_owner_add_finds_a_section_by_the_start_of_its_heading(project):
@@ -651,3 +700,15 @@ def test_owner_add_finds_a_section_by_the_start_of_its_heading(project):
     OwnerActions(project).add("Create the remote", "Do soon")
     text = (project.dir / "owner.md").read_text()
     assert text.count("## Do soon") == 1 and "- [ ] O1 Reserve names\n- [ ] O2 Create the remote" in text
+
+
+def test_answers_are_recognised_anywhere_in_the_message(project):
+    OwnerActions(project).add("Decide: defer W34 (Layers editor) until a real backend is ported? (recommended: yes)",
+                              "Decide or provide")
+    OwnerActions(project).add("Decide: which backend to port first?", "Decide or provide")
+    assert continuity.owner_signals(project, "About deferring W34 until a real backend is ported: yes, defer it.") \
+        == {"answer": ["O1"]}
+    assert continuity.owner_signals(project, "O2: go with the claims API") == {"answer": ["O2"]}
+    assert "answer" not in continuity.owner_signals(project, "What is W55 about?")
+    continuity.turn_start(project, "About deferring W34 until a real backend is ported: yes, defer it.")
+    assert "found: O1" in _stop(project)["reason"]

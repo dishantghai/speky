@@ -313,12 +313,18 @@ run lists only what is still pending.
 | `knowledge/*.md` | `speky remember --topic` | `prime` (always topics; triggers of the rest) |
 
 **Nothing lives only in the chat (record check).** When the owner sends a message, SPEKY fingerprints its
-records (`owner.md`, `decisions.md`, `backlog.json`, `state.md`, `log.md`, knowledge, ADRs, change documents,
-phase manifests) in `.speky/turn.json` (per machine). When the agent is about to stop, it reads the reply: if
-it hands the owner something — actions only they can take, decisions or approvals, recommendations ("I'd
-defer…", "if you agree…") — and no record changed this turn, the stop is blocked once with instructions to
-record it (`speky owner add`, "Decide: … (recommended: …)", `speky task`, `speky decide`, `speky remember`) or
-to say why nothing needs recording. Claude Code runs it through hooks; other harnesses get the same rule in
+records by kind — owner (`owner.md`), decisions (`decisions.md`, ADRs), knowledge (`knowledge/`, glossary,
+AGENTS.md/CLAUDE.md), plan (backlog, phases, change documents, findings), state (`state.md`, `log.md`) — in
+`.speky/turn.json` (per machine), and notes what the message itself must leave behind: a standing
+instruction ("from now on…", "always/never…", not in questions) → knowledge; feedback ("confusing", "doesn't
+work"…) → plan or owner; an answer to an open "Decide:" item (named by ID or sharing its words) → owner; a
+link or account → knowledge. When the agent is about to stop, its reply is read too: hand-offs to the owner
+(actions, approvals, recommendations) → owner, decisions or plan; assumptions and promises ("I assumed…",
+"next I'll…") → decisions, plan or state. If a kind of record that should have changed did not, the stop is
+blocked once with the exact commands, or the agent says in one line why nothing needs recording. Unrelated
+edits do not count. Before compaction, `speky checkpoint --auto` also saves what was in flight — the owner's
+latest request and the agent's step list (TodoWrite / TaskCreate) — and `speky prime` shows it after
+compaction. Claude Code runs it through hooks; other harnesses get the same rule in
 their SPEKY block. `record_check: false` in `speky.yaml` turns it off.
 
 `speky handoff --summary … --done … --learned … --next … --watch … [--title …] [--commit] [--no-tests]`

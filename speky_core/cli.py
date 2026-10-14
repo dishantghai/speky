@@ -1036,20 +1036,42 @@ def run(argv: List[str]) -> dict:
     raise SpekyError("unknown_command", f"Unknown command {cmd}.")
 
 
-def _turn_hook(argv: List[str]) -> int:
-    """Claude Code UserPromptSubmit / Stop hooks. Never fails the session: errors mean "allow"."""
+def _hook_payload() -> dict:
+    """The JSON a harness hook passes on stdin (empty when run by hand)."""
+    import select
     try:
-        payload = json.loads(sys.stdin.read() or "{}") if not sys.stdin.isatty() else {}
-    except (ValueError, OSError):
-        payload = {}
+        if sys.stdin is None or sys.stdin.isatty():
+            return {}
+        try:
+            ready = select.select([sys.stdin], [], [], 0.5)[0]
+        except (ValueError, OSError, TypeError, AttributeError):
+            ready = True  # not a real file (tests, wrappers): just read it
+        if not ready:
+            return {}
+        return json.loads(sys.stdin.read() or "{}")
+    except (ValueError, OSError, TypeError):
+        return {}
+
+
+def _turn_hook(argv: List[str]) -> int:
+    """Claude Code UserPromptSubmit / Stop / PreCompact hooks. Never fails the session: errors mean "allow"."""
+    payload = _hook_payload()
     try:
         project = Project.open(require=False)
         if "--turn-start" in argv:
-            continuity.turn_start(project)
-        else:
+            continuity.turn_start(project, payload.get("prompt") or payload.get("user_prompt") or "")
+        elif "--stop" in argv:
             decision = continuity.stop_check(project, payload)
             if decision:
                 print(json.dumps(decision))
+        elif not project.dir.is_dir():  # --auto outside a SPEKY project
+            if "--json" in argv:
+                print(json.dumps({"ok": True, "skipped": "not a SPEKY project"}))
+        else:  # --auto: checkpoint before compaction
+            snap = continuity.checkpoint(project, auto=True, transcript=payload.get("transcript_path"))
+            if "--json" in argv:
+                print(json.dumps({"ok": True, "at": snap["at"], "head": snap["head"], "auto": True,
+                                  "in_flight": bool(snap.get("in_flight"))}))
     except Exception:  # a hook must never break the agent's session
         pass
     return 0
@@ -1057,7 +1079,7 @@ def _turn_hook(argv: List[str]) -> int:
 
 def main(argv: List[str] = None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv[:1] == ["checkpoint"] and ("--stop" in argv or "--turn-start" in argv):
+    if argv[:1] == ["checkpoint"] and ({"--stop", "--turn-start", "--auto"} & set(argv)):
         return _turn_hook(argv)
     as_json = "--json" in argv
     try:

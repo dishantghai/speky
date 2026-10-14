@@ -344,10 +344,12 @@ def prime(project: Project, limit_items: int = 5) -> str:
         "decisions: `speky decide` (small) or `speky adr new` (lasting). Compaction can happen any time.",
         "- Owner-only actions (accounts, money, judgement, people) go to `speky owner add`; human gates "
         "(stack, design, scope, merge) are the owner's call: stop and ask.",
-        "- **Nothing you tell the owner lives only in the chat.** Before you end a turn, record what you handed "
-        "them: actions → `speky owner add`; recommendations that need their decision → `speky owner add "
-        "\"Decide: … (recommended: …)\" --section \"Decide or provide\"`; plan changes → `speky task`; decisions → "
-        "`speky decide`.",
+        "- **Nothing lives only in the chat.** Before you end a turn, record: what you handed the owner (actions → "
+        "`speky owner add`; recommendations needing their decision → `speky owner add \"Decide: … (recommended: …)\" "
+        "--section \"Decide or provide\"`); the owner's standing instructions (`speky remember --topic owner "
+        "--always`); their feedback (a task or finding per point); their answers to open decisions (`speky owner "
+        "done O<n> --note …` + `speky decide`); links and accounts they share (`speky remember --topic "
+        "environment`, never secrets); your assumptions (`speky decide --type assumption`) and promises (tasks).",
         "",
         "## Pick up here",
     ]
@@ -361,6 +363,15 @@ def prime(project: Project, limit_items: int = 5) -> str:
     if facts["auto_checkpoint"] and facts["checkpoint_at"]:
         lines.append(f"- Context was compacted around {facts['checkpoint_at'][:16]}; the state at that "
                      "moment was saved automatically.")
+        flight = facts.get("in_flight") or {}
+        if flight.get("request"):
+            lines.append("- The owner's request you were working on: \"" +
+                         " ".join(flight["request"].split())[:300] + "\"")
+        if flight.get("steps"):
+            marks = {"completed": "x", "in_progress": "~"}
+            lines.append("- Your step list at that moment: " + "; ".join(
+                f"[{marks.get(t['status'], ' ')}] {t['step'][:80]}" for t in flight["steps"][:10]) +
+                " — continue from the first unchecked step.")
     drift = []
     if facts["commits_since"]:
         drift.append(f"{len(facts['commits_since'])} commit(s) since the handoff: "

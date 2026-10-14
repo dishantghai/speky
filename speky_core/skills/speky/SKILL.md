@@ -29,8 +29,11 @@ Then ask `speky next --json` and follow it. After compaction, ask again — the 
 | `idle` | ask the owner what's next; offer the deferred backlog (`speky backlog`) |
 
 Every non-code artifact has one home (`speky layout`); never invent another place.
-Nothing you tell the owner lives only in the chat: owner actions and recommendations that need their
-decision go to `speky owner add` ("Decide: … (recommended: …)") before you end the turn.
+Nothing lives only in the chat. Before you end a turn: owner actions and recommendations needing their
+decision → `speky owner add` ("Decide: … (recommended: …)"); their standing instructions → `speky remember
+--topic owner --always`; their feedback → tasks/findings; their answers → `speky owner done O<n> --note` +
+`speky decide`; shared links → `speky remember --topic environment`; your assumptions → `speky decide --type
+assumption`; promises → tasks.
 New project → speky-init. Documents or a prototype to bring in → speky-import. Screens and design
 system → speky-design. Old SPEKY v2 project or hand-kept notes → speky-migrate.
 
