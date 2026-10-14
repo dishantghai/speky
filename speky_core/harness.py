@@ -346,7 +346,7 @@ def setup(project: Project, harness: str) -> Dict:
     if recipe["hook"]:
         notes += _install_hook(project, recipe["hook"])
     notes += _disable_v2_rules(project, recipe["v2_ide"])
-    project.capabilities_dir.mkdir(parents=True, exist_ok=True)
+    project.ensure_capabilities_dir()
     cfg = project.config
     if harness not in cfg["harnesses"]:
         cfg["harnesses"] = cfg["harnesses"] + [harness]

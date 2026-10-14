@@ -15,8 +15,9 @@ def init(root: Path, idea: str = "", from_project: bool = False, harness_name: s
     project = Project(root)
     existed = project.dir.is_dir()
     legacy_v2 = (project.dir / "context" / "context.json").exists()
-    for sub in ("specs", "stories", "phases", "epics", "capabilities", "knowledge"):
+    for sub in ("specs", "stories", "phases", "epics", "knowledge"):
         (project.dir / sub).mkdir(parents=True, exist_ok=True)
+    project.ensure_capabilities_dir()
     if not (project.dir / config.CONFIG_NAME).exists():
         config.save(project.root, dict(config.DEFAULTS))
     recorded = []
