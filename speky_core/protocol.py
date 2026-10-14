@@ -225,6 +225,10 @@ def prime(project: Project, limit_items: int = 5) -> str:
                                               "design_system.md") if (context_dir / n).exists()]
     if (project.dir / "adr").is_dir():
         refs.append("`.speky/adr/`")
+    if (project.dir / "testing" / "ide_context.md").exists():
+        lines += ["", "## Testing",
+                  "Before writing or running tests, read `.speky/testing/ide_context.md` "
+                  "(test commands, layout and conventions for this project)."]
     if refs:
         lines += ["", "## Project knowledge",
                   "Before choosing a library, a pattern or a UI approach, read " + ", ".join(refs)

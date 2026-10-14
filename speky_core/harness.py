@@ -116,6 +116,19 @@ def _legacy_user_rules(text: str) -> str:
     return "\n".join(lines).strip()
 
 
+TESTING_SECTION_RE = re.compile(r"# 🧪 SPEKY Testing Context.*?(?:(?:# END SPEKY Testing Context\s*)+|\Z)",
+                                re.DOTALL)
+STRAY_TESTING_END_RE = re.compile(r"^(?:# END SPEKY Testing Context\s*\n)+", re.MULTILINE)
+
+
+def _strip_v2_testing(text: str) -> (str, bool):
+    """Remove v2's testing-context section (and stray end markers) from an instruction file."""
+    new = TESTING_SECTION_RE.sub("", text)
+    new = STRAY_TESTING_END_RE.sub("", new)
+    new = re.sub(r"\n{3,}", "\n\n", new).strip("\n")
+    return (new + "\n" if new else ""), new.strip() != text.strip()
+
+
 def _write_block(project: Project, rel: str, profile: str) -> List[str]:
     path = project.root / rel
     text = path.read_text() if path.exists() else ""
@@ -123,6 +136,9 @@ def _write_block(project: Project, rel: str, profile: str) -> List[str]:
     text, note = _strip_v2_rules(project, path, text)
     if note:
         notes.append(f"{rel}: {note}")
+    text, stripped = _strip_v2_testing(text)
+    if stripped:
+        notes.append(f"{rel}: removed v2 testing-context section (see `speky prime`)")
     block = _block_text(profile)
     found = _find_block(text)
     if found:
@@ -223,7 +239,8 @@ def check(project: Project, harness: str) -> Dict:
             BEGIN_RE.search(expected).group(2) == found[3] and \
             found[4] == expected.split("\n", 1)[1].rsplit(END, 1)[0].strip("\n") else "stale"
         text = path.read_text()
-        if V2_BEGIN in text or ("# SPEKY Project Rules" in text and "# USER RULES" in text):
+        if V2_BEGIN in text or ("# SPEKY Project Rules" in text and "# USER RULES" in text) \
+                or "SPEKY Testing Context" in text:
             files[recipe["file"]] = "stale (v2 rules still present)"
     if recipe["skills"]:
         for name in skill_names():

@@ -100,3 +100,35 @@ def test_v2_rules_writer_skips_v3_managed_claude_md(project, monkeypatch):
     before = (project.root / "CLAUDE.md").read_text()
     speky.IDEIntegration(project.root, ide="claude-code").update_context_file("ctx", target_ide="claude-code")
     assert (project.root / "CLAUDE.md").read_text() == before
+
+
+TESTING = "# 🧪 SPEKY Testing Context (v1)\n\nRun pnpm test\n\n# END SPEKY Testing Context\n# END SPEKY Testing Context\n"
+
+
+def test_setup_strips_v2_testing_context_and_v2_stops_adding_it(project):
+    import speky_testing
+    root = project.root
+    (root / "CLAUDE.md").write_text("Mine\n\n" + TESTING)
+    harness.setup(project, "claude-code")
+    text = (root / "CLAUDE.md").read_text()
+    assert "Testing Context" not in text and text.startswith("Mine")
+    testing_dir = project.dir / "testing"
+    testing_dir.mkdir()
+    (testing_dir / "ide_context.md").write_text("# 🧪 SPEKY Testing Context (v1)\n\nRun pnpm test\n")
+    integration = speky_testing.TestingIntegration.__new__(speky_testing.TestingIntegration)
+    integration.project_root = root
+    integration.testing_dir = testing_dir
+    integration.merge_ide_context_to_rules()
+    assert (root / "CLAUDE.md").read_text() == text
+    assert harness.check(project, "claude-code")["status"] == "current"
+
+
+def test_v2_testing_merge_does_not_duplicate_end_markers(tmp_path):
+    import speky_testing
+    integration = speky_testing.TestingIntegration.__new__(speky_testing.TestingIntegration)
+    rules = tmp_path / ".windsurfrules"
+    rules.write_text("rules\n")
+    for _ in range(3):
+        integration._merge_context_to_file(rules, "# 🧪 SPEKY Testing Context (v1)\n\nctx")
+    assert rules.read_text().count("# END SPEKY Testing Context") == 1
+    assert rules.read_text().count("SPEKY Testing Context (v1)") == 1
