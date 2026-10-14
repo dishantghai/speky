@@ -123,6 +123,11 @@ def plan(project: Project) -> Dict:
     from . import uxdesign
     ui_unclear = [i.id for i in project.items() if i.info()["status"] not in DONE_STATUSES
                   and uxdesign.looks_user_facing(project, i)]
+    unlinked = screens_naming_tasks(project)
+    if unlinked:
+        steps.append({"step": "link_screen_tasks", "detail": f"{len(unlinked)} screen(s) name a task only in their "
+                      "title; link them (screen metadata + the task's screen: references)",
+                      "items": [f"{s} → {t}" for s, t in unlinked]})
     design_folders = uxdesign.find_design_folders(project)
     if design_folders:
         judgement.append({"task": "register_design_folders", "items": design_folders,
@@ -212,6 +217,10 @@ def apply(project: Project) -> Dict:
                     state = str(a.get("status", "pending")).lower()
                     if state not in ("pending", "open") and not f.get("duplicate"):
                         ledger.resolve(f["id"], "accepted", f"handled in v2 validation ({a.get('intent', state)})")
+        elif step["step"] == "link_screen_tasks":
+            from . import design as design_mod
+            for sid, tid in screens_naming_tasks(project):
+                design_mod.link(project, sid, tid)
         elif step["step"] == "move_design_system":
             from . import design as design_mod
             target = design_mod.system_path(project)
@@ -253,3 +262,23 @@ def mark_done(project: Project, task: str) -> Dict:
     cfg["migration_done"] = sorted(set(cfg.get("migration_done", []) or []) | {task})
     config.save(project.root, cfg)
     return {"done": cfg["migration_done"], "remaining": [j["task"] for j in plan(project)["judgement"]]}
+
+
+def screens_naming_tasks(project: Project) -> list:
+    """(screen, task) pairs where a screen's title names an existing task it is not linked to."""
+    import re as _re
+    from . import design as design_mod
+    from .tasks import Tasks
+    if not (project.dir / "backlog.json").exists():
+        return []
+    tasks = {t["id"]: t for t in Tasks(project).list()}
+    pairs = []
+    for s in design_mod.screens(project):
+        if s["_source"]["kind"] == "file":
+            continue
+        for tid in _re.findall(r"\bW\d+\b", s["title"] or ""):
+            t = tasks.get(tid)
+            if t and tid not in s["items"] and f"screen:{s['id']}" not in (t.get("refs") or []):
+                pairs.append((s["id"], tid))
+    return pairs
+

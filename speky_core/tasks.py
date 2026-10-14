@@ -138,11 +138,14 @@ class Tasks:
                                    story_type=story_type, size="small" if to == "story" else "change")
         carry = {k: t[k] for k in ("phase", "labels", "refs") if t.get(k)}
         item.update_status(from_task=t["id"], **carry)
-        if t.get("refs"):  # cite them in the document too, where the implementer reads
+        others = [r for r in t.get("refs") or [] if not r.startswith("screen:")]
+        if others:  # cite them in the document too, where the implementer reads
             text = item.read_doc()
-            item.doc_path.write_text(text.rstrip() + "\n\n## References\n" +
-                                     "".join(f"- {r}\n" for r in t["refs"]))
+            item.doc_path.write_text(text.rstrip() + "\n\n## References\n" + "".join(f"- {r}\n" for r in others))
         uxdesign.ensure_section(self.project, item)
+        for s in uxdesign.task_screens(self.project, t):  # the task's screens become the change's design
+            from . import design
+            design.link(self.project, s["id"], item.id)
         t["promoted_to"] = item.id
         t["status"] = "doing"
         self.save()

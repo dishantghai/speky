@@ -250,21 +250,37 @@ def screen_add(project: Project, sid: str, files: List[str], title: str = "", ki
     return {"screen": sid, "path": _rel(project, folder), "added": added, "status": meta["status"]}
 
 
+TASK_RE = re.compile(r"^[Ww]\d+$")
+
+
 def link(project: Project, sid: str, item_ref: str) -> dict:
-    """The screen belongs to an item: recorded on the screen and cited in the item's `## Design`."""
+    """The screen belongs to a change or a task: recorded on the screen, and cited where the work is read —
+    the change's `## Design`, or the task's references (`screen:<id>`)."""
     from . import uxdesign
-    item = project.find(item_ref)
+    from .tasks import Tasks
     s = find_screen(project, sid) or find_screen(project, Path(sid).stem)
     if not s:
         raise SpekyError("screen_not_found", f"No screen '{sid}'.", "Run `speky design screen list --json`.")
+    if TASK_RE.match(item_ref) and not project.try_find(item_ref):
+        tasks = Tasks(project)
+        task = tasks.get(item_ref)
+        ref = f"screen:{s['id']}"
+        if ref not in (task.get("refs") or []):
+            task["refs"] = (task.get("refs") or []) + [ref]
+            tasks.save()
+        owner_id, item = task["id"], None
+    else:
+        item = project.find(item_ref)
+        owner_id = item.id
     if s["_source"]["kind"] != "file":
         _, meta, save = _record(project, s["id"])
-        if item.id not in (meta.get("items") or []):
-            meta["items"] = (meta.get("items") or []) + [item.id]
+        if owner_id not in (meta.get("items") or []):
+            meta["items"] = (meta.get("items") or []) + [owner_id]
         save(meta)
-    uxdesign.cite_screen(project, item, s["id"])
+    if item:
+        uxdesign.cite_screen(project, item, s["id"])
     render_catalogue(project)
-    return {"screen": s["id"], "item": item.id}
+    return {"screen": s["id"], ("task" if item is None else "item"): owner_id}
 
 
 def approve(project: Project, sid: str, by: str, note: str = "") -> dict:
@@ -470,8 +486,15 @@ def status(project: Project, everything: bool = False) -> dict:
             st = uxdesign.state(project, item)
             ui_items.append({"item": item.id, "title": item.info()["title"], "designed": uxdesign.satisfied(st),
                              "cited": st["cited"], "broken": st["broken"], "unapproved": st["unapproved"]})
+    from .tasks import Tasks
+    ui_tasks = []
+    if (project.dir / "backlog.json").exists():
+        for t in Tasks(project).list():
+            if t["status"] in ("todo", "doing") and set(t.get("labels") or []) & set(uxdesign.ui_labels(project)):
+                ui_tasks.append({"task": t["id"], "text": t["text"][:80],
+                                 "screens": [x["id"] for x in uxdesign.task_screens(project, t)]})
     playbook = project.config.get("playbooks") or {}
-    return {"design_system": uxdesign.design_system(project),
+    return {"design_system": uxdesign.design_system(project), "ui_tasks": ui_tasks,
             "screens_dir": uxdesign.screen_dirs(project),
             "reviews_dir": _rel(project, reviews_dir(project)),
             "screens": [{k: s[k] for k in ("id", "title", "status", "items", "path", "group")} for s in rows]
