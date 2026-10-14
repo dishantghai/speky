@@ -24,10 +24,11 @@ Work on a branch and keep the user's uncommitted files untouched.
    - Completed items whose v2 drift review was skipped (`speky migrate` lists them) are suspect:
      check the code before claiming the behaviour exists; record gaps as new bug/tech_debt stories.
    - Put `<!-- speky:next-id N -->` above `## Requirements` (N = highest R number + 1).
+   - `speky capabilities --json` must report `"valid": true` (format: the speky-verify skill, step 3).
 6. Open items (draft/ready/in_progress): run `speky check <id>`; add requirement IDs and scenarios
    where the rubric asks. Don't rewrite intent.
 7. Record the migration: `speky decide "Migrated to SPEKY v3" --type event`.
-8. Verify: `speky state --json` lists every item; `speky next --json` returns a sensible action;
+8. Verify: `speky capabilities --json` is valid; `speky state --json` lists every item; `speky next --json` returns a sensible action;
    `speky setup <harness> --check` says current; the v2 commands (`speky status`) still work.
    Commit only `.speky/`, the harness files and the instruction files — never the user's
    unrelated changes.

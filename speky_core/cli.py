@@ -12,7 +12,7 @@ from . import graph, harness, journal, migrate, protocol, validation, verificati
 from .errors import SpekyError
 from .items import STORY_PREFIXES, Project
 
-COMMANDS = {"new", "state", "ready", "next", "check", "finding", "start", "evidence", "verify",
+COMMANDS = {"capabilities", "new", "state", "ready", "next", "check", "finding", "start", "evidence", "verify",
             "archive", "decide", "remember", "adr", "term", "gate", "link", "prime", "setup",
             "migrate", "set"}
 
@@ -25,6 +25,7 @@ HELP = """SPEKY v3 commands (agent protocol; add --json to any of them):
   evidence <id> <R#>           record verification evidence for a requirement
   verify <id> [--run CMD]      evidence-gated verification
   archive <id>                 merge deltas into living specs, close the change
+  capabilities                 living specs with requirement counts and structural problems
   decide | remember | adr | term   decision log, memory, ADRs, glossary
   gate add|resolve | link      human/ci/pr gates; typed links
   prime [--hook-json]          workflow + state for an agent session
@@ -55,6 +56,7 @@ def _parser() -> argparse.ArgumentParser:
 
     add("state")
     add("ready")
+    add("capabilities")
     sp = add("next")
     sp.add_argument("id", nargs="?")
 
@@ -208,6 +210,10 @@ def run(argv: List[str]) -> dict:
         return protocol.state(project)
     if cmd == "ready":
         return {"items": graph.ready(project)}
+    if cmd == "capabilities":
+        caps = verification.capabilities_report(project)
+        return {"capabilities": caps, "total_requirements": sum(c["requirements"] for c in caps),
+                "valid": all(not c["problems"] for c in caps)}
     if cmd == "next":
         return protocol.next_action(project, args.id)
     if cmd == "check":

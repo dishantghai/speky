@@ -204,3 +204,18 @@ def test_untracked_file_content_change_makes_verification_stale(repo):
     with pytest.raises(SpekyError) as e:
         verification.archive(repo, item)
     assert e.value.code == "stale_verification"
+
+
+def test_capabilities_report(project):
+    good = project.capabilities_dir / "spaces"
+    good.mkdir(parents=True)
+    (good / "spec.md").write_text("# Spaces\n\n## Purpose\nGroups.\n\n<!-- speky:next-id 2 -->\n\n## Requirements\n\n"
+                                  "### spaces-R1: Create\nSHALL.\n#### Scenario: s\n- WHEN a\n- THEN b\n")
+    bad = project.capabilities_dir / "tabs"
+    bad.mkdir()
+    (bad / "spec.md").write_text("# Tabs\n\n## Purpose\n\n## Requirements\n\n### R1: Open\nx\n### spaces-R4: Wrong\nx\n")
+    report = {c["capability"]: c for c in verification.capabilities_report(project)}
+    assert report["spaces"]["problems"] == [] and report["spaces"]["ids"] == ["spaces-R1"]
+    probs = " | ".join(report["tabs"]["problems"])
+    assert "unreadable requirement heading" in probs and "must start with 'tabs-R'" in probs
+    assert "next-id" in probs and "Purpose is empty" in probs and "no WHEN/THEN" in probs

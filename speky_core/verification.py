@@ -237,3 +237,40 @@ def archive(project: Project, item: Item, force_reason: str = None) -> dict:
             "message": (f"Archived {item.id}; living specs updated: "
                         + ", ".join(m["capability"] for m in merged)) if merged
             else f"Archived {item.id} (no deltas to merge)."}
+
+
+def capabilities_report(project: Project) -> List[dict]:
+    """Every living spec with its requirements and structural problems."""
+    report = []
+    base = project.capabilities_dir
+    for path in sorted(base.glob("*/spec.md")) if base.is_dir() else []:
+        cap = path.parent.name
+        text = path.read_text()
+        reqs = md.parse_requirements(text, md.CAP_REQ_RE)
+        problems = []
+        if not re.match(r"^[a-z0-9][a-z0-9-]*$", cap):
+            problems.append("folder name must be lowercase-kebab-case")
+        stray = [l.strip() for l in md.strip_comments(text).splitlines()
+                 if l.startswith("### ") and not md.CAP_REQ_RE.match(l)]
+        problems += [f"unreadable requirement heading: {l}" for l in stray]
+        wrong_prefix = [r.id for r in reqs if not r.id.startswith(cap + "-R")]
+        if wrong_prefix:
+            problems.append("IDs must start with '%s-R': %s" % (cap, ", ".join(wrong_prefix)))
+        ids = [r.id for r in reqs]
+        dupes = sorted({i for i in ids if ids.count(i) > 1})
+        if dupes:
+            problems.append("duplicate IDs: " + ", ".join(dupes))
+        no_scenario = [r.id for r in reqs if not any(sc.complete for sc in r.scenarios)]
+        if no_scenario:
+            problems.append("no WHEN/THEN scenario: " + ", ".join(no_scenario))
+        mark = re.search(r"<!-- speky:next-id (\d+) -->", text)
+        highest = max((int(i.rsplit("-R", 1)[1]) for i in ids if "-R" in i), default=0)
+        if not mark:
+            problems.append(f"missing <!-- speky:next-id {highest + 1} --> marker")
+        elif int(mark.group(1)) <= highest:
+            problems.append(f"next-id {mark.group(1)} must be greater than {highest}")
+        if not md.section_has_content(md.sections(text).get("purpose")):
+            problems.append("## Purpose is empty")
+        report.append({"capability": cap, "requirements": len(reqs), "ids": ids,
+                       "problems": problems, "file": str(path.relative_to(project.root))})
+    return report
