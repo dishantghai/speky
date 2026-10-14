@@ -11,7 +11,7 @@ Configured in `.speky/speky.yaml`:
 import glob as globlib
 import re
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from .items import Project
 
@@ -32,6 +32,32 @@ def resolve(project: Project, kind: str, ref_id: str, spec: dict) -> bool:
         needle = spec.get("contains", "{id}").replace("{id}", ref_id)
         return path.exists() and needle in path.read_text()
     return False
+
+
+def locate(project: Project, kind: str, ref_id: str, spec: dict) -> Optional[str]:
+    """The file a reference points at (for context packets), or None."""
+    if spec.get("builtin") == "item":
+        item = project.try_find(ref_id)
+        return str(item.doc_path.relative_to(project.root)) if item else None
+    if "glob" in spec:
+        hits = sorted(globlib.glob(str(project.root / spec["glob"].replace("{id}", ref_id))))
+        return str(Path(hits[0]).relative_to(project.root)) if hits else None
+    if "file" in spec and resolve(project, kind, ref_id, spec):
+        return spec["file"]
+    return None
+
+
+def cited(project: Project, text: str) -> List[dict]:
+    """`<kind>:<id>` references in a text, with the file each one points at."""
+    kinds = _kinds(project)
+    pattern = re.compile(r"(?<![\w/])(" + "|".join(re.escape(k) for k in kinds) + r"):([A-Za-z0-9][\w.\-]*\w)")
+    out, seen = [], set()
+    for m in pattern.finditer(text):
+        ref = f"{m.group(1)}:{m.group(2)}"
+        if ref not in seen:
+            seen.add(ref)
+            out.append({"ref": ref, "read": locate(project, m.group(1), m.group(2), kinds[m.group(1)])})
+    return out
 
 
 def scan(project: Project) -> dict:

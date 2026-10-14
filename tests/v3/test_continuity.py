@@ -175,8 +175,8 @@ def test_owner_actions_roundtrip_with_hand_edits(project):
     text = text.replace("- [ ] O2 Pick a real backend", "- [ ] O2 Pick a real backend\n  - Notes: use the claims API")
     text += "\n- [ ] Book the trademark search\n"
     path.write_text(text)
-    oa = OwnerActions(project)
-    assert oa.assign_missing_ids() == 1
+    oa = OwnerActions(project)  # reading numbers the hand-added item
+    assert "- [ ] O3 Book the trademark search" in path.read_text()
     open_ = oa.open_items()
     assert [o["id"] for o in open_] == ["O2", "O3"]
     assert open_[0]["notes"] == ["- Notes: use the claims API"]
@@ -278,3 +278,139 @@ def test_verify_a_task_runs_tests_and_marks_it_done(project):
     out = cli("task", "done", "W2", "--verify", expect=1)
     assert out["error"]["code"] == "task_not_verified"
     assert Tasks(project).get("W2")["status"] == "todo"
+
+
+def test_owner_actions_nested_items_and_notes_with_blank_lines(project):
+    (project.dir / "owner.md").write_text(
+        "# Owner\n\n## Do soon\n\n- [ ] **Reserve names**\n  - [ ] PyPI\n  - [ ] npm\n"
+        "- [ ] The test\n  - Notes:\n    1. hesitated here\n\n    2. and here\n- [ ] Last\n")
+    OwnerActions(project)
+    assert (project.dir / "owner.md").read_text().count("] O") == 5
+    items = {i["id"]: i for i in OwnerActions(project).items()}
+    assert items["O2"]["parent"] == "O1" and items["O3"]["parent"] == "O1"
+    assert items["O4"]["notes"] == ["- Notes:", "1. hesitated here", "2. and here"]
+    OwnerActions(project).set_done("O2", True, "reserved")
+    OwnerActions(project).set_done("O4", True, "done")
+    text = (project.dir / "owner.md").read_text()
+    assert "  - [x] O2 PyPI\n    - reserved" in text
+    assert "    2. and here\n  - done" in text and text.endswith("- [ ] O5 Last\n")
+
+
+def test_phase_order(project):
+    for pid in ("phase-1a", "track-x", "phase-0"):
+        phases.add(project, pid, pid)
+    assert [p.id for p in phases.all_phases(project)] == ["phase-0", "phase-1a", "track-x"]
+    out = cli("phases", "order", "phase-0", "track-x")
+    assert out["order"] == ["phase-0", "track-x", "phase-1a"]
+    phases.add(project, "Later", "a-later")
+    assert [p.id for p in phases.all_phases(project)][-1] == "a-later"
+
+
+def test_playbooks_cited_refs_and_design_system_in_next_and_context(project):
+    from speky_core import config
+    (project.root / "docs" / "ux" / "screens").mkdir(parents=True)
+    (project.root / "docs" / "ux" / "screens" / "README.md").write_text("| `RV-E2-held` | held |\n")
+    (project.root / "docs" / "ux" / "DESIGN.md").write_text("# Design\n")
+    (project.root / "docs" / "ux" / "stitch.md").write_text("# Stitch\n")
+    cfg = project.config
+    cfg["refs"] = {"screen": {"file": "docs/ux/screens/README.md", "contains": "`{id}`"}}
+    cfg["paths"] = {"design_system": "docs/ux/DESIGN.md"}
+    cfg["playbooks"] = {"ui": {"skill": "screen-design-narratives", "read": ["docs/ux/stitch.md"],
+                               "note": "Review before showing the owner."}}
+    config.save(project.root, cfg)
+    body = GOOD_SPEC.replace("## Requirements", "Matches screen:RV-E2-held.\n\n## Requirements")
+    item = spec(project, body=body)
+    item.update_status(labels=["ui"])
+    nxt = protocol.next_action(project)
+    assert "screen-design-narratives" in nxt["instruction"] and nxt["also_skills"] == ["screen-design-narratives"]
+    assert "docs/ux/stitch.md" in nxt["read"]
+    packet = cli("context", item.id)
+    reads = {l.get("read") for l in packet["layers"]}
+    assert {"docs/ux/DESIGN.md", "docs/ux/stitch.md", "docs/ux/screens/README.md"} <= reads
+    Tasks(project).add("Design the Layers editor", labels=["ui"])
+    item.update_status(status="archived")
+    assert "screen-design-narratives" in protocol.next_action(project)["instruction"]
+    assert "[ui]" in (project.dir / "tasks.md").read_text()
+
+
+def test_extra_skills_installed_for_each_harness(project, tmp_path_factory, monkeypatch):
+    from speky_core import config
+    src = tmp_path_factory.mktemp("skills") / "screen-design-narratives"
+    (src / "references").mkdir(parents=True)
+    (src / "SKILL.md").write_text("---\nname: screen-design-narratives\ndescription: d\n---\nbody\n")
+    (src / "references" / "stitch-guide.md").write_text("guide\n")
+    monkeypatch.setattr(harness, "USER_SKILL_DIRS", {"claude-code": tmp_path_factory.mktemp("noskills")})
+    cfg = project.config
+    cfg["extra_skills"] = [str(src)]
+    config.save(project.root, cfg)
+    harness.setup(project, "codex")
+    target = project.root / ".agents" / "skills" / "screen-design-narratives"
+    assert (target / "references" / "stitch-guide.md").exists()
+    assert harness.check(project, "codex")["status"] == "current"
+    (src / "SKILL.md").write_text((src / "SKILL.md").read_text() + "more\n")
+    assert harness.check(project, "codex")["files"][".agents/skills/screen-design-narratives/SKILL.md"] == "stale"
+    monkeypatch.setattr(harness, "USER_SKILL_DIRS", {"claude-code": src.parent})
+    out = harness.setup(project, "claude-code")
+    assert any("already available to claude-code" in c for c in out["changes"])
+    assert not (project.root / ".claude" / "skills" / "screen-design-narratives").exists()
+    harness.remove(project, "codex")
+    assert not target.exists()
+
+
+def test_checkpoint_and_test_runs_are_git_ignored(repo):
+    continuity.checkpoint(repo, run_tests=False)
+    assert (repo.dir / ".gitignore").read_text().splitlines()[1:] == ["checkpoint.json", "testing/runs.json"]
+    assert ".speky/checkpoint.json" not in git(repo.root, "status", "--porcelain", "--untracked-files=all")
+
+
+def test_handoff_file_bullets_continue_on_wrapped_lines():
+    notes = continuity.parse_handoff_file("## Watch out for\n- Kill stray `prano demo`\n  servers on 7431.\n- Second\n")
+    assert notes["watch"] == ["Kill stray `prano demo` servers on 7431.", "Second"]
+
+
+def test_owner_item_text_wraps_without_becoming_notes(project):
+    (project.dir / "owner.md").write_text("## Do\n\n- [ ] **Trademark search** for PRANO\n  in classes 9 and 42.\n"
+                                          "- [ ] Test it\n  - Notes: slow start\n")
+    items = OwnerActions(project).items()
+    assert items[0]["text"] == "**Trademark search** for PRANO in classes 9 and 42." and items[0]["notes"] == []
+    assert items[1]["notes"] == ["- Notes: slow start"]
+
+
+def test_always_knowledge_over_budget_names_the_files_to_read(project):
+    from speky_core import config
+    for i in range(6):
+        journal.remember(project, f"owner preference {i} " + "x" * 300, "owner", True)
+        journal.remember(project, f"env fact {i} " + "y" * 300, "environment", True)
+    cfg = project.config
+    cfg["prime_knowledge_chars"] = 1500
+    config.save(project.root, cfg)
+    text = protocol.prime(project)
+    assert text.index("owner preference 5") < text.index("env fact") if "env fact" in text else True
+    assert "`.speky/knowledge/owner.md` (2 more)" in text and "`.speky/knowledge/environment.md` (6 more)" in text
+
+
+def test_handoff_commit_is_not_reported_as_work_since(repo):
+    cfg = repo.config
+    cfg["agent_profile"] = "team-maintainer"
+    from speky_core import config
+    config.save(repo.root, cfg)
+    git(repo.root, "add", "-A")
+    git(repo.root, "commit", "-q", "-m", "setup")
+    out = continuity.handoff(repo, summary="s", run_tests=False)
+    assert out["committed"]
+    assert "since the handoff" not in protocol.prime(repo)
+
+
+def test_labelled_task_must_meet_its_done_checks(project):
+    from speky_core import config
+    cfg = project.config
+    cfg["verify_command"] = "true"
+    cfg["done_checks"] = {"ui": [{"name": "review", "manual": "a recorded UX review"}],
+                          "all": [{"name": "changelog", "file": "CHANGES-{id}.md"}]}
+    config.save(project.root, cfg)
+    Tasks(project).add("Layers editor", labels=["ui"])
+    out = cli("task", "done", "W1", "--verify", expect=1)
+    assert out["error"]["code"] == "task_not_verified"
+    assert cli("verify", "W1", expect=2)["missing"] == ["done check review (ui): a recorded UX review"]  # `all` not applied
+    cli("evidence", "W1", "check:review", "--status", "met", "--evidence", "docs/ux/reviews/x.md PASS")
+    assert cli("task", "done", "W1", "--verify")["status"] == "done"

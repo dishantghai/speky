@@ -49,7 +49,7 @@ Work items
   spec | story "<title>"   create a change (also: new spec|story); --epic --related --files --phase
   task add|start|done [--verify]|defer|promote|list   small work without a spec (verify W<n> runs the tests)
   epic add|show|attach|detach|list            stories that share context
-  phases list|add|start|deliverable|verify|check|complete   phases with deliverables as their gate
+  phases list|add|start|deliverable|verify|check|complete|order   phases; deliverables are the gate
   deps add|remove|clear|foundation|cycles  ·  order [--export]        dependencies and order
   set <id> --status|--priority  ·  link <id> --type …  ·  gate add|…  ·  backlog (deferred items)
 
@@ -223,6 +223,9 @@ def _parser() -> argparse.ArgumentParser:
     pv.add_argument("--json", action="store_true")
     ps = psub.add_parser("suggest")
     ps.add_argument("--json", action="store_true")
+    po = psub.add_parser("order", help="set the order phases are listed and worked in")
+    po.add_argument("ids", nargs="+")
+    po.add_argument("--json", action="store_true")
 
     sp = add("task")
     tsub = sp.add_subparsers(dest="action", required=True)
@@ -232,6 +235,7 @@ def _parser() -> argparse.ArgumentParser:
     ta.add_argument("--epic", default=None)
     ta.add_argument("--parent", default=None)
     ta.add_argument("--refs", default="", help="comma-separated, e.g. adr:0021,screen:RV-1")
+    ta.add_argument("--labels", default="", help="comma-separated, e.g. ui (selects a playbook)")
     ta.add_argument("--json", action="store_true")
     for name in ("start", "done", "defer", "todo"):
         tx = tsub.add_parser(name)
@@ -643,6 +647,8 @@ def run(argv: List[str]) -> dict:
         return ledger.resolve(args.finding, args.status, args.ruling)
     if cmd == "start":
         return verification.start(project, project.find(args.id))
+    if cmd == "evidence" and re.match(r"^[Ww]\d+$", args.id) and not project.try_find(args.id):
+        return Tasks(project).record_evidence(args.id, args.requirement, args.status, args.evidence or "")
     if cmd == "evidence":
         return verification.record_evidence(project, project.find(args.id), args.requirement,
                                             args.status, args.evidence)
@@ -669,6 +675,8 @@ def run(argv: List[str]) -> dict:
         return knowledge.promote(project, args.topic, args.title or args.topic.replace("-", " ").capitalize())
     if cmd == "phases":
         action = args.action or "list"
+        if action == "order":
+            return phases_mod.set_order(project, args.ids)
         if action in ("list", "status"):
             cur = phases_mod.current(project)
             return {"phases": [p.to_dict() for p in phases_mod.all_phases(project)],
@@ -710,7 +718,8 @@ def run(argv: List[str]) -> dict:
         tasks = Tasks(project)
         if args.action == "add":
             refs_ = [r.strip() for r in args.refs.split(",") if r.strip()]
-            return tasks.add(args.text, args.phase, args.epic, args.parent, refs_)
+            labels_ = [l.strip() for l in args.labels.split(",") if l.strip()]
+            return tasks.add(args.text, args.phase, args.epic, args.parent, refs_, labels=labels_)
         if args.action == "list":
             return {"tasks": tasks.list(args.status, args.phase)}
         if args.action == "promote":
@@ -776,6 +785,12 @@ def run(argv: List[str]) -> dict:
         if args.done:
             return migrate.mark_done(project, args.done)
         return migrate.apply(project) if args.apply else migrate.plan(project)
+    if cmd == "set" and re.match(r"^[Ww]\d+$", args.id) and args.labels is not None and not args.status:
+        tasks = Tasks(project)
+        t = tasks.get(args.id)
+        t["labels"] = [l.strip() for l in args.labels.split(",") if l.strip()]
+        tasks.save()
+        return {"task": t["id"], "labels": t["labels"]}
     if cmd == "set":
         item = project.find(args.id)
         changes = {}

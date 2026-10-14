@@ -75,18 +75,23 @@ def remember(project: Project, fact: str, topic: str = "general", always: bool =
     return {"topic": slug, "fact": fact, "file": str(path.relative_to(project.root))}
 
 
-def always_entries(project: Project, limit_chars: int = 2500) -> List[dict]:
-    """Entries from `always` topics for `speky prime`, newest first, within a size budget."""
+def always_entries(project: Project, limit_chars: int = None) -> List[dict]:
+    """Entries from `always` topics for `speky prime` (owner first), newest first, within a size budget
+    (`prime_knowledge_chars` in speky.yaml). Entries over the budget are reported per topic as
+    `{"topic", "file", "more": n}` so the agent knows to read the rest."""
+    limit = int(limit_chars or project.config.get("prime_knowledge_chars") or 4000)
     out, used = [], 0
     legacy = project.dir / "memory.md"  # milestone-1 memory file
-    sources = [(t["topic"], (project.root / t["file"]).read_text()) for t in topics(project) if t["always"]]
+    always = sorted((t for t in topics(project) if t["always"]), key=lambda t: (t["topic"] != "owner", t["topic"]))
+    sources = [(t["topic"], t["file"], (project.root / t["file"]).read_text()) for t in always]
     if legacy.exists():
-        sources.append(("memory", legacy.read_text()))
-    for topic, text in sources:
-        for e in entries_of(text):
-            if used + len(e) > limit_chars:
-                out.append({"topic": topic, "truncated": True})
-                return out
+        sources.append(("memory", str(legacy.relative_to(project.root)), legacy.read_text()))
+    for topic, file, text in sources:
+        entries = entries_of(text)
+        for n, e in enumerate(entries):
+            if used + len(e) > limit:
+                out.append({"topic": topic, "file": file, "more": len(entries) - n, "truncated": True})
+                break
             out.append({"topic": topic, "text": e})
             used += len(e)
     return out

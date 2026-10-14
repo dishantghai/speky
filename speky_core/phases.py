@@ -118,6 +118,9 @@ def all_phases(project: Project) -> List[Phase]:
                 phases.append(Phase(project, folder))
             except SpekyError:
                 continue
+    order = [str(o) for o in roadmap_meta(project).get("order") or []]  # roadmap.yaml `order:`, else folder names
+    if order:
+        phases.sort(key=lambda p: (order.index(p.id) if p.id in order else len(order), p.dir.name))
     return phases
 
 
@@ -158,7 +161,24 @@ def add(project: Project, name: str, phase_id: str = None, description: str = ""
             "specs": [], "deliverables": [], "acceptance_criteria": [], "depends_on": [], "unlocks": [],
             "created_at": now()}
     (folder / "manifest.yaml").write_text(yamlio.dump(data))
+    meta = roadmap_meta(project)
+    if meta.get("order") is not None:
+        meta["order"] = list(meta["order"]) + [phase_id]
+        _save_roadmap_meta(project, meta)
     return Phase(project, folder)
+
+
+def set_order(project: Project, ids: List[str]) -> dict:
+    """Phases in this order; ones not named keep their place after them (by folder name)."""
+    known = [get(project, i).id for i in ids]
+    meta = roadmap_meta(project)
+    meta["order"] = known + [p.id for p in all_phases(project) if p.id not in known]
+    _save_roadmap_meta(project, meta)
+    from .tasks import Tasks
+    tasks = Tasks(project)
+    if tasks.path.exists():
+        tasks.render()  # tasks.md groups follow the phase order
+    return {"order": [p.id for p in all_phases(project)]}
 
 
 def set_status(project: Project, ref: str, status: str) -> Phase:

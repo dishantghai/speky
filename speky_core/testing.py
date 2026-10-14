@@ -98,6 +98,8 @@ def _runs_path(project: Project) -> Path:
 
 
 def _record(project: Project, kind: str, result: dict) -> None:
+    from . import continuity
+    continuity.ensure_local_ignored(project)
     path = _runs_path(project)
     path.parent.mkdir(parents=True, exist_ok=True)
     data = json.loads(path.read_text()) if path.exists() else {}
@@ -127,7 +129,7 @@ def run(project: Project, kind: str = "unit", files: List[str] = None) -> dict:
     cp = continuity.load_checkpoint(project)
     if kind == "unit" and not files:
         cp["last_test"] = {k: result[k] for k in ("command", "exit_code", "passed", "at")}
-        write_json(project.dir / continuity.CHECKPOINT_NAME, cp)
+        continuity.write_checkpoint(project, cp)
     return result
 
 

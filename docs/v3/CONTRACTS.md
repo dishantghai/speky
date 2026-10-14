@@ -169,8 +169,9 @@ Rules (configurable in `speky.yaml`):
 - **Done checks** (`done_checks` in `speky.yaml`, §8) add per-label conditions: a command that must
   pass, a file that must exist, or a manual check recorded as evidence `check:<name>`
   (`speky evidence <id> check:screenshot --status met --evidence "..."`). `verify` fails until they hold.
-- **Tasks**: `speky verify W<n>` (or `speky task done W<n> --verify`) runs the verify command and closes
-  the task only on a pass.
+- **Tasks**: `speky verify W<n>` (or `speky task done W<n> --verify`) runs the verify command and the done
+  checks of the task's labels (not `all`), and closes the task only when both pass. Manual checks:
+  `speky evidence W<n> check:<name> --status met --evidence "..."`.
 - `speky archive <id>` → requires a passed verification of the current tree (or `--force` with a
   recorded reason), merges deltas (§4), `status: archived`.
 
@@ -203,6 +204,14 @@ testing:                      # `speky test init` detects these
   e2e_command: "npx playwright test"
 paths:
   adr_dir: docs/adr           # where ADRs live (default .speky/adr)
+  design_system: docs/ux/DESIGN.md   # the design-system document (default .speky/context/design_system.md)
+playbooks:                    # how this project does a kind of work, by label (items and tasks: --labels)
+  ui:
+    skill: screen-design-narratives
+    read: [docs/ux/stitch.md]
+    note: "Never show the owner a UI without a recorded UX review."
+extra_skills:                 # skills besides SPEKY's; `speky setup` installs them for every harness
+  - ~/.claude/skills/screen-design-narratives   # (skipped where the tool already sees it)
 refs:                         # `<kind>:<id>` references checked by `speky refs`
   adr: {glob: "docs/adr/{id}-*.md"}
   screen: {file: "docs/ux/screens/README.md", contains: "`{id}`"}
@@ -233,7 +242,10 @@ Failures: `{"ok": false, "error": {"code": "...", "message": "...", "fix": "..."
   the triggers of the other topics, session-close protocol for the agent profile. `--hook-json`
   wraps it for Claude Code SessionStart.
 - `speky context <id>|--phase <id> [--full]` — a context packet: what to read and why, layer by layer
-  (knowledge → tech decisions/ADRs → design → phase → epic → related specs → dependencies → the item).
+  (knowledge → tech decisions/ADRs → design → phase → epic → related specs → dependencies → the item →
+  playbooks for its labels → files behind the references it cites, e.g. `screen:RV-E2-held`).
+- A labelled item or task whose label has a playbook gets it in `next`: the instruction names the
+  playbook, `also_skills` lists its skill, `read` adds its files.
 
 ## 10. Harness adapters — `speky setup <harness> [--check | --remove]`
 

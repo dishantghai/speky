@@ -43,6 +43,18 @@ def _action(action, item: Optional[Item], why, instruction, skill=None, commands
 
 
 def action_for(project: Project, item: Item) -> dict:
+    from . import playbooks
+    result = _item_action(project, item)
+    if result["action"] in ("plan", "start", "implement", "validate", "propose"):
+        books = playbooks.for_labels(project, item.load_status().get("labels") or [])
+        if books:
+            result["instruction"] = playbooks.instruction(books) + " " + result["instruction"]
+            result["also_skills"] = [b["skill"] for b in books if b["skill"]]
+            result["read"] = result["read"] + [r for b in books for r in b["read"] if r not in result["read"]]
+    return result
+
+
+def _item_action(project: Project, item: Item) -> dict:
     info = item.info()
     doc = item.doc_path
     rel_doc = doc.relative_to(project.root)
@@ -190,22 +202,32 @@ def _roadmap_action(project: Project) -> Optional[dict]:
     task_help = ("Size it first: if it changes behaviour, promote it (`speky task promote {id} --to story`) "
                  "and follow the change workflow; otherwise do it, then `speky task done {id} --verify` (runs the tests). "
                  "Work you discover goes in as a new task (`speky task add`).")
+    from . import playbooks
+
+    def with_playbook(action: dict, t: dict) -> dict:
+        books = playbooks.for_labels(project, t.get("labels") or [])
+        if books:
+            action["instruction"] = playbooks.instruction(books) + " " + action["instruction"]
+            action["also_skills"] = [b["skill"] for b in books if b["skill"]]
+            action["read"] = action["read"] + [r for b in books for r in b["read"]]
+        return action
+
     doing = [t for t in tasks.list(status="doing") if not t.get("promoted_to")]
     if doing:
         t = doing[0]
-        return _action("task", None, f"Task {t['id']} is in progress: {t['text'][:120]}",
+        return with_playbook(_action("task", None, f"Task {t['id']} is in progress: {t['text'][:120]}",
                        task_help.format(id=t["id"]), skill="speky",
                        commands=[f"speky task done {t['id']} --verify", f"speky task promote {t['id']} --to story"],
-                       done_when=f"{t['id']} is done or promoted", task=t["id"])
+                       done_when=f"{t['id']} is done or promoted", task=t["id"]), t)
     phase = phases_mod.current(project)
     todo = [t for t in tasks.list(status="todo") if not phase or t.get("phase") in (phase.id, None)]
     if todo:
         t = todo[0]
         where = f" in {phase.id}" if phase and t.get("phase") == phase.id else ""
-        return _action("task", None, f"Next task{where}: {t['text'][:120]}",
+        return with_playbook(_action("task", None, f"Next task{where}: {t['text'][:120]}",
                        f"Start it with `speky task start {t['id']}`. " + task_help.format(id=t["id"]),
                        skill="speky", commands=[f"speky task start {t['id']}", f"speky task done {t['id']} --verify"],
-                       done_when=f"{t['id']} is done or promoted", task=t["id"])
+                       done_when=f"{t['id']} is done or promoted", task=t["id"]), t)
     if not phase:
         return None
     unverified = [d for d in phase.deliverables() if not d["verified"]]
@@ -344,8 +366,10 @@ def prime(project: Project, limit_items: int = 5) -> str:
     if always or others:
         lines += ["", "## Knowledge"]
         lines += [f"- {e['text']}" for e in always if "text" in e]
-        if any(e.get("truncated") for e in always):
-            lines.append("- … (more in `.speky/knowledge/`)")
+        cut = [e for e in always if e.get("truncated")]
+        if cut:
+            lines.append("- Always-loaded topics continue in their files; read them now: "
+                         + ", ".join(f"`{e['file']}` ({e['more']} more)" for e in cut))
         for k in others:
             when = f" — read when {k['read_when']}" if k["read_when"] else ""
             lines.append(f"- `{k['file']}` ({k['entries']} entries){when}")

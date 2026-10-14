@@ -236,6 +236,49 @@ def _install_skills(project: Project, rel: str) -> List[str]:
     return notes
 
 
+USER_SKILL_DIRS = {"claude-code": Path.home() / ".claude" / "skills"}
+
+
+def extra_skills(project: Project) -> List[Path]:
+    """Skills the project uses besides SPEKY's (`extra_skills:` in speky.yaml): folders with a SKILL.md."""
+    out = []
+    for entry in project.config.get("extra_skills") or []:
+        path = Path(str(entry)).expanduser()
+        path = path if path.is_absolute() else project.root / path
+        if not (path / "SKILL.md").is_file():
+            raise SpekyError("extra_skill_missing", f"extra_skills: no SKILL.md in {entry}.",
+                             "Fix the path in .speky/speky.yaml (a folder that contains SKILL.md).")
+        out.append(path)
+    return out
+
+
+def _extra_skill_targets(project: Project, harness: str, recipe: dict) -> List[tuple]:
+    """(source, target, why-skipped) for each extra skill this harness needs installed."""
+    result = []
+    for src in extra_skills(project):
+        user = USER_SKILL_DIRS.get(harness)
+        if user and (user / src.name).resolve() == src.resolve() or (user and (user / src.name / "SKILL.md").exists()):
+            result.append((src, None, f"{src.name}: already available to {harness} from {user}"))
+        elif not recipe["skills"]:
+            result.append((src, None, f"{src.name}: {harness} has no skills folder; mention it in the instructions"))
+        else:
+            result.append((src, project.root / recipe["skills"] / src.name, None))
+    return result
+
+
+def _install_extra_skills(project: Project, harness: str, recipe: dict) -> List[str]:
+    notes = []
+    for src, target, skipped in _extra_skill_targets(project, harness, recipe):
+        if skipped:
+            notes.append(skipped)
+            continue
+        if src.resolve() == target.resolve():
+            continue  # the project keeps it in this harness's folder already
+        shutil.copytree(src, target, dirs_exist_ok=True)
+        notes.append(f"{target.relative_to(project.root)}: copied from {src}")
+    return notes
+
+
 def _hook_entries(settings: dict) -> list:
     return settings.setdefault("hooks", {}).setdefault("SessionStart", [])
 
@@ -293,6 +336,7 @@ def setup(project: Project, harness: str) -> Dict:
     notes = []
     if recipe["skills"]:
         notes += _install_skills(project, recipe["skills"])
+    notes += _install_extra_skills(project, harness, recipe)
     target, profile = instruction_target(project, recipe)
     if target != recipe["file"]:
         notes += _remove_block(project, recipe["file"])
@@ -340,6 +384,11 @@ def check(project: Project, harness: str) -> Dict:
             else:
                 files[rel] = "current" if target.read_text() == (SKILLS_DIR / name / "SKILL.md").read_text() \
                     else "stale"
+    for src, target, skipped in _extra_skill_targets(project, harness, recipe):
+        if target is not None:
+            rel = str((target / "SKILL.md").relative_to(project.root))
+            files[rel] = "missing" if not (target / "SKILL.md").exists() else \
+                "current" if (target / "SKILL.md").read_text() == (src / "SKILL.md").read_text() else "stale"
     if recipe["hook"]:
         hook_path = project.root / recipe["hook"]
         ok = False
@@ -368,6 +417,10 @@ def remove(project: Project, harness: str) -> Dict:
     skills_in_use = {RECIPES[h]["skills"] for h in project.config.get("harnesses", [])
                      if h != harness and h in RECIPES}
     if recipe["skills"] and recipe["skills"] not in skills_in_use:
+        for src, target, _ in _extra_skill_targets(project, harness, recipe):
+            if target is not None and target.exists() and src.resolve() != target.resolve():
+                shutil.rmtree(target)
+                notes.append(f"{target.relative_to(project.root)}: removed")
         for name in skill_names():
             target = project.root / recipe["skills"] / name
             if target.exists():

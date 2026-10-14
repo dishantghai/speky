@@ -38,8 +38,15 @@ def collect_evidence(root: Path) -> dict:
                         if f not in docs and f.name not in boring), key=lambda f: f.stat().st_size)
         for folder in ("docs", "doc", "documentation", "design", "specs"):
             if (root / folder).is_dir():
+                def rank(f: Path):
+                    # entry points first (README, index, numbered overviews), shallow before deep,
+                    # markdown before text, then small before large
+                    name = f.name.lower()
+                    entry = name.startswith(("readme", "index", "overview", "00")) or re.match(r"0\d[-_]", name)
+                    return (0 if entry else 1, len(f.relative_to(root).parts), f.suffix != ".md",
+                            name if entry else "", f.stat().st_size)
                 docs += sorted((f for f in (root / folder).rglob("*") if f.suffix in (".md", ".txt")
-                                and f.is_file() and not skipped(f)), key=lambda f: f.stat().st_size)
+                                and f.is_file() and not skipped(f) and f.stem.lower() != "template"), key=rank)
         docs = docs[:25]
 
         manifests = [root / n for n in EVIDENCE_MANIFESTS if (root / n).is_file()]

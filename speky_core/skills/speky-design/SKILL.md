@@ -5,6 +5,13 @@ description: Use when design assets are involved in a SPEKY project — a design
 
 # Design system and screens
 
+**The project's own design workflow comes first.** If `speky next` or `speky context` names a playbook
+for the work (e.g. `ui` → a design skill such as screen-design-narratives, a design-tool guide, a
+review rubric), follow it. SPEKY's part then is: the design system lives where `paths.design_system`
+says; screens are cited by ID (`screen:<id>`, checked by `speky refs`); reviews and screenshots are
+recorded as evidence for the item's done checks (`speky evidence <id> check:<name> ...`); design
+follow-ups become tasks. Use the steps below when the project has no workflow of its own.
+
 1. **Set up once:** `speky design init --tech <ui technology>`. Add assets:
    `speky design add <file-or-folder> --type system|hifi|lofi|icon [--for <item>]`.
    Link screens to the work they belong to: `speky design link <file> <item>`.

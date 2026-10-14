@@ -508,10 +508,10 @@ parses** (people and agents can edit them by hand; SPEKY reads the edits back), 
 | 1 | `speky handoff` / `speky checkpoint`: log entry, regenerated state snapshot, optional `Handoff:` commit | the AGENTS.md §3 handoff |
 | 2 | PreCompact hook → `speky checkpoint --auto` (mechanical snapshot before compaction) | "treat any milestone as a possible last moment" |
 | 3 | `prime` session-start block: last handoff, commits since, uncommitted files, last test run, "trust git" rule | AGENTS.md §1 steps 1–5 |
-| 4 | Roadmap: milestones (phases/tracks) with gates + lightweight tasks `W<n>` (todo/doing/done/deferred, nested, promotable to story/spec) in `.speky/roadmap.md`; `next` falls back to tasks | PLAN.md |
+| 4 | Phases (v2's manifests; deliverables are the gate; `phases order`) + lightweight tasks `W<n>` (todo/doing/done/deferred, nested, labelled, promotable to story/spec) in `backlog.json` with a `tasks.md` view; `next` falls back to tasks | PLAN.md |
 | 5 | Knowledge by topic in `.speky/knowledge/<topic>.md`; `always` topics injected, others indexed with a read-when trigger; promote to ADR | KNOWLEDGE.md |
 | 6 | Owner actions `O<n>` in `.speky/owner.md` (checkboxes + notes the owner writes) | ops/temp/owner-next-steps.md |
-| 7 | ~~Format-specific importer~~ *(dropped: it would bake one project's conventions into SPEKY)*. Adoption of hand-kept notes is done with the generic commands, driven by the `speky-migrate` skill; `speky roadmap fmt` gives IDs to tasks written by hand | — |
+| 7 | ~~Format-specific importer~~ *(dropped: it would bake one project's conventions into SPEKY)*. Adoption of hand-kept notes is done with the generic commands, driven by the `speky-migrate` skill; owner items written by hand get IDs when SPEKY reads them | — |
 | 8 | Block goes into AGENTS.md when CLAUDE.md only imports it | — |
 | 9 | Per-label done checks (`run`, `file`, `manual`) enforced by `verify` | AGENTS.md §4b UI definition of done |
 | 10 | References (`adr:0021`, `screen:RV-E2-held`) checked against configurable patterns; `paths.adr_dir` + project ADR template | screen-ID and ADR citations |
@@ -520,7 +520,7 @@ Project-specific rules (aIDE's constitution, architecture rules, UX process) sta
 AGENTS.md outside SPEKY's block; SPEKY only provides the mechanisms. **Nothing in SPEKY is specific to
 aIDE**: aIDE is retrofitted onto these generic features afterwards, as any project would be.
 
-## 11. Milestone 3: one SPEKY *(proposed 2026-10-14)*
+## 11. Milestone 3: one SPEKY *(agreed and built 2026-10-14)*
 
 **Goal (owner):** the new SPEKY is robust, complete and unambiguous. No v2 command is kept alive only for
 compatibility: every v2 capability becomes a native feature — one data model, one command style
@@ -576,6 +576,27 @@ checkpoint, knowledge, owner actions, refs, done checks, harness + prime/next; (
 every row above; (3) skills speky-init, speky-import, speky-design, speky-test + updates; (4) `speky run`;
 (5) `speky migrate` for v2 data; (6) delete the v2 implementation, parity tests rewritten against the new
 commands; (7) retrofit aIDE, real-agent pilots, release.
+
+### Status of milestones 2 and 3 *(2026-10-14)*
+
+Built on branch `v3/continuity`: everything in §10 and every row of §11 (the guard test
+`tests/capabilities/test_v2_capability_homes.py` lists each v2 command and its home; `renumber`, `host`
+and `sync` dropped by agreement). The v2 implementation is deleted (`speky.py` is the entry point only).
+Added while retrofitting aIDE, all generic:
+- **Playbooks** by label (`playbooks.ui: {skill, read, note}`): `next` and `context` name the project's
+  own workflow for that kind of work (aIDE: screen-design-narratives + Stitch guides for `ui`).
+- **`extra_skills`**: skills the project relies on (e.g. a user-level design skill) installed by
+  `speky setup` for every harness, skipped where the tool already sees them.
+- `paths.design_system`; context packets include the files behind cited references (`screen:<id>`).
+- Done checks apply to labelled tasks; `speky evidence W<n> check:<name>`.
+- `speky setup` for every tool v2 wrote rules for (cursor, windsurf, vscode, antigravity).
+- Owner actions: nested items, wrapped text, notes with blank lines; per-machine files git-ignored.
+- `speky migrate` moves v2 product/tech/validation/testing data.
+
+Verified: 137 tests; live `speky run` (Claude subscription) finished a tracked, tested, verified change;
+aIDE retrofitted on branch `chore/speky` (PLAN/STATE/KNOWLEDGE/LOG/owner notes → SPEKY, nothing lost),
+and a fresh Claude Code session there picked up at the right point, named the UI playbook and the done
+checks, and described the SPEKY handoff without being told.
 
 ## 8. Sources
 - Beads — https://github.com/steveyegge/beads (docs: https://beads.gascity.com/)

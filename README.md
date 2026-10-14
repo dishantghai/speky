@@ -120,7 +120,10 @@ speky deps add 003 001                         # 003 depends on 001; `speky orde
 verify_command: "pnpm test"         # what `speky verify` runs
 agent_profile: conservative         # or team-maintainer (commits handoffs, archives verified work)
 testing: {coverage_command: "…", coverage_threshold: 80, e2e_command: "npx playwright test"}
-paths: {adr_dir: docs/adr}
+paths: {adr_dir: docs/adr, design_system: docs/ux/DESIGN.md}
+playbooks:                          # a kind of work with its own workflow, by label (--labels ui)
+  ui: {skill: screen-design-narratives, read: [docs/ux/stitch.md]}
+extra_skills: [~/.claude/skills/screen-design-narratives]   # installed by `speky setup` for every tool
 refs:                               # `speky refs` checks adr:0021, screen:RV-1, … resolve
   adr: {glob: "docs/adr/{id}-*.md"}
 done_checks:                        # extra conditions for `speky verify`, by label

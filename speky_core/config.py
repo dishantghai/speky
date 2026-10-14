@@ -46,5 +46,5 @@ def save(root: Path, config: dict) -> Path:
     ordered = {key: config.get(key, DEFAULTS.get(key)) for key in DEFAULTS}
     ordered.update({k: v for k, v in config.items() if k not in ordered})
     path.write_text("# SPEKY v3 settings — reference: https://github.com/dishantghai/speky/blob/main/docs/v3/CONTRACTS.md#8-spekyyaml\n"
-                    + yaml.safe_dump(ordered, sort_keys=False))
+                    + yaml.safe_dump(ordered, sort_keys=False, allow_unicode=True, width=110))
     return path

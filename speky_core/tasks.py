@@ -31,7 +31,7 @@ class Tasks:
     def _view(self, t: dict) -> dict:
         return {"id": t["id"], "text": t["name"], "status": t["status"], "phase": t.get("phase"),
                 "epic": t.get("epic"), "parent": t.get("parent"), "refs": t.get("refs", []),
-                "notes": t.get("notes", []), "promoted_to": t.get("promoted_to")}
+                "notes": t.get("notes", []), "labels": t.get("labels", []), "promoted_to": t.get("promoted_to")}
 
     def get(self, ref: str) -> dict:
         for t in self._tasks():
@@ -54,7 +54,7 @@ class Tasks:
         self.render()
 
     def add(self, text: str, phase: str = None, epic: str = None, parent: str = None,
-            refs: List[str] = None, status: str = "todo") -> dict:
+            refs: List[str] = None, status: str = "todo", labels: List[str] = None) -> dict:
         from . import phases as phases_mod
         if parent:
             par = self.get(parent)
@@ -67,7 +67,7 @@ class Tasks:
         if epic and not (self.project.dir / "epics").exists():
             raise SpekyError("epic_not_found", f"No epic {epic}.")
         task = {"id": self._next_id(), "kind": "task", "name": " ".join(text.split()), "status": status,
-                "phase": phase, "epic": epic, "parent": parent, "refs": refs or [], "notes": [],
+                "phase": phase, "epic": epic, "parent": parent, "refs": refs or [], "labels": labels or [], "notes": [],
                 "created_at": now()}
         self.items.append(task)
         self.save()
@@ -92,16 +92,36 @@ class Tasks:
         if not cmd:
             raise SpekyError("no_verify_command", "No verify command configured.",
                              "Set verify_command in speky.yaml (`speky test init` detects it), or pass --run.")
+        from .verification import checks_for_labels, run_checks
         proc = subprocess.run(cmd, shell=True, cwd=self.project.root, capture_output=True, text=True)
-        passed = proc.returncode == 0
-        note = f"verified: `{cmd}` exit {proc.returncode}"
+        # a labelled task meets that label's done checks too (`all` checks are for specs and stories)
+        checks = run_checks(self.project, t["id"], checks_for_labels(self.project, t.get("labels") or []),
+                            t.get("evidence") or {})
+        missing = ([] if proc.returncode == 0 else [f"`{cmd}` failed"]) + \
+            [f"done check {c['name']} ({c['label']}): {c['detail']}" for c in checks if not c["passed"]]
+        passed = not missing
+        note = f"verified: `{cmd}` exit {proc.returncode}" + (f"; {len(missing)} missing" if missing else "")
         if passed and t["status"] != "done":
             t["status"], t["done_at"] = "done", now()
         t.setdefault("notes", []).append(f"{now()[:10]} {note}")
         self.save()
         return {"task": t["id"], "passed": passed, "command": cmd, "exit_code": proc.returncode,
-                "status": t["status"], "missing": [] if passed else [f"`{cmd}` failed"],
+                "status": t["status"], "missing": missing, "done_checks": checks,
                 "output_tail": "\n".join((proc.stdout + proc.stderr).splitlines()[-15:])}
+
+    def record_evidence(self, ref: str, check: str, status: str, evidence: str) -> dict:
+        """Evidence for a manual done check of a labelled task (`check:<name>`)."""
+        from .verification import checks_for_labels
+        t = self.get(ref)
+        names = [f"check:{c['name']}" for c in checks_for_labels(self.project, t.get("labels") or []) if c.get("manual")]
+        if check not in names:
+            raise SpekyError("unknown_check", f"{t['id']} has no manual check {check}.",
+                             f"Manual checks for its labels: {', '.join(names) or 'none'}.")
+        if status == "met" and not evidence.strip():
+            raise SpekyError("evidence_required", "`met` needs evidence: a file, test id or review.")
+        t.setdefault("evidence", {})[check] = {"status": status, "evidence": evidence, "recorded_at": now()}
+        self.save()
+        return {"task": t["id"], "check": check, "status": status}
 
     def promote(self, ref: str, to: str = "story", story_type: str = "feature") -> dict:
         t = self.get(ref)
@@ -133,7 +153,9 @@ class Tasks:
                 for t in by_parent.get(parent, []):
                     extra = f" → {t['promoted_to']}" if t.get("promoted_to") else ""
                     refs = f" (refs: {', '.join(t['refs'])})" if t.get("refs") else ""
+                    refs += f" [{', '.join(t['labels'])}]" if t.get("labels") else ""
                     lines.append(f"{'  ' * depth}- {MARK[t['status']]} {t['id']} {t['name']}{refs}{extra}")
+                    lines.extend(f"{'  ' * (depth + 1)}- {n}" for n in t.get("notes") or [])
                     emit(t["id"], depth + 1)
 
             emit(None, 0)

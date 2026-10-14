@@ -51,7 +51,8 @@ def _project_layers(project: Project, full: bool) -> List[dict]:
 def _design_layers(project: Project, item_id: str, full: bool) -> List[dict]:
     design = project.dir / "design"
     layers = []
-    system = project.dir / "context" / "design_system.md"
+    configured = (project.config.get("paths") or {}).get("design_system")
+    system = project.root / configured if configured else project.dir / "context" / "design_system.md"
     if system.exists():
         layers.append(_layer(project, "design", system, "design system: tokens and components to reuse", full))
     manifest = design / "manifest.json"
@@ -123,6 +124,17 @@ def item_packet(project: Project, ref: str, full: bool = False) -> dict:
     if deltas.is_dir():
         layers.append({"layer": "item", "read": _rel(project, deltas),
                        "why": "how this change alters the living specs"})
+    from . import playbooks, refs
+    books = playbooks.for_labels(project, status.get("labels") or [])
+    for b in books:
+        layers.append({"layer": "playbook", "label": b["label"], "skill": b["skill"],
+                       "why": playbooks.instruction([b])})
+        for r in b["read"]:
+            layers.append(_layer(project, "playbook", project.root / r, f"part of the `{b['label']}` playbook", full))
+    for c in refs.cited(project, item.read_doc()):
+        if c["read"]:
+            layers.append({"layer": "reference", "ref": c["ref"], "read": c["read"],
+                           "why": f"the item cites {c['ref']}"})
     reqs = md.parse_requirements(md.strip_comments(item.read_doc()))
     return {"item": item.id, "kind": item.kind, "title": info["title"], "status": info["status"],
             "requirements": [f"{r.id}: {r.title}" for r in reqs],

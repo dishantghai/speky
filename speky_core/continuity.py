@@ -20,6 +20,22 @@ from .items import DONE_STATUSES, Project, now, write_json
 LOG_NAME = "log.md"
 STATE_NAME = "state.md"
 CHECKPOINT_NAME = "checkpoint.json"
+LOCAL_FILES = ("checkpoint.json", "testing/runs.json")  # per machine: never committed
+
+
+def write_checkpoint(project: Project, data: dict) -> None:
+    ensure_local_ignored(project)
+    write_json(project.dir / CHECKPOINT_NAME, data)
+
+
+def ensure_local_ignored(project: Project) -> None:
+    """`.speky/.gitignore` lists SPEKY's per-machine files (checkpoint, last test runs)."""
+    path = project.dir / ".gitignore"
+    lines = path.read_text().splitlines() if path.exists() else ["# per-machine SPEKY state (speky checkpoint, speky test)"]
+    missing = [f for f in LOCAL_FILES if f not in lines]
+    if missing:
+        project.dir.mkdir(parents=True, exist_ok=True)
+        path.write_text("\n".join(lines + missing) + "\n")
 LOG_HEADER = "# Session log\n\nAppend-only: one entry per handoff, newest last. Written by `speky handoff`.\n"
 SECTIONS = {"summary": "Where things stand", "done": "Done", "learned": "Learned", "next": "Next",
             "watch": "Watch out for", "mechanism": "Mechanism changes"}
@@ -70,7 +86,7 @@ def snapshot(project: Project, run_tests: bool = False) -> dict:
 def checkpoint(project: Project, run_tests: bool = False, auto: bool = False) -> dict:
     snap = snapshot(project, run_tests=run_tests)
     snap["auto"] = auto
-    write_json(project.dir / CHECKPOINT_NAME, snap)
+    write_checkpoint(project, snap)
     return snap
 
 
@@ -95,8 +111,16 @@ def parse_handoff_file(text: str) -> Dict[str, object]:
         body = "\n".join(lines).strip()
         if key in ("summary", "title"):
             out[key] = body
-        else:
-            out[key] = [re.sub(r"^(\d+\.|-|\*)\s+", "", l).strip() for l in body.splitlines() if l.strip()]
+        else:  # one entry per bullet; indented or unbulleted lines continue the bullet above
+            items: List[str] = []
+            for l in body.splitlines():
+                if not l.strip():
+                    continue
+                if re.match(r"^(\d+\.|-|\*)\s+", l) or not items:
+                    items.append(re.sub(r"^(\d+\.|-|\*)\s+", "", l).strip())
+                else:
+                    items[-1] += " " + l.strip()
+            out[key] = items
     return out
 
 
@@ -139,7 +163,7 @@ def handoff(project: Project, summary: str = "", done: List[str] = None, learned
 
     # 2. state snapshot (regenerated)
     snap["last_handoff"] = {"at": now(), "head": snap["head"], "title": title}
-    write_json(project.dir / CHECKPOINT_NAME, snap)
+    write_checkpoint(project, snap)
     write_state(project, narrative, snap)
 
     # 3. optional commit
@@ -151,6 +175,10 @@ def handoff(project: Project, summary: str = "", done: List[str] = None, learned
         msg = f"Handoff: {title}"
         r = subprocess.run(["git", "commit", "-m", msg], cwd=project.root, capture_output=True, text=True)
         committed = msg if r.returncode == 0 else None
+        if committed:  # the record's own commit is not "work since the handoff"
+            snap["head"] = _git(project.root, "rev-parse", "HEAD").strip() or snap.get("head")
+            snap["last_handoff"]["head"] = snap["head"]
+            write_checkpoint(project, snap)
     return {"title": title, "log": str(log.relative_to(project.root)),
             "state": str((project.dir / STATE_NAME).relative_to(project.root)),
             "tests": snap.get("last_test"), "uncommitted": snap["uncommitted"], "committed": committed,

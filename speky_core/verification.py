@@ -283,10 +283,8 @@ def capabilities_report(project: Project) -> List[dict]:
 
 
 # ---------------------------------------------------------------------------- definition of done
-def done_checks_for(project: Project, item: Item) -> List[dict]:
-    """Checks configured in speky.yaml `done_checks` for this item's labels (and `all`)."""
+def checks_for_labels(project: Project, labels: List[str]) -> List[dict]:
     config_checks = project.config.get("done_checks") or {}
-    labels = ["all"] + list(item.load_status().get("labels", []) or [])
     result = []
     for label in labels:
         for check in config_checks.get(label, []) or []:
@@ -294,17 +292,26 @@ def done_checks_for(project: Project, item: Item) -> List[dict]:
     return result
 
 
+def done_checks_for(project: Project, item: Item) -> List[dict]:
+    """Checks configured in speky.yaml `done_checks` for this item's labels (and `all`)."""
+    return checks_for_labels(project, ["all"] + list(item.load_status().get("labels", []) or []))
+
+
 def run_done_checks(project: Project, item: Item, evidence: Dict[str, dict]) -> List[dict]:
+    return run_checks(project, item.id, done_checks_for(project, item), evidence)
+
+
+def run_checks(project: Project, ref_id: str, checks: List[dict], evidence: Dict[str, dict]) -> List[dict]:
     import glob as globlib
     results = []
-    for c in done_checks_for(project, item):
+    for c in checks:
         name = c.get("name") or c.get("run") or c.get("file") or c.get("manual")
         if c.get("run"):
-            r = _run(c["run"].replace("{id}", item.id), project.root)
+            r = _run(c["run"].replace("{id}", ref_id), project.root)
             results.append({"name": name, "label": c["label"], "passed": r["exit_code"] == 0,
                             "detail": f"`{c['run']}` exited {r['exit_code']}"})
         elif c.get("file"):
-            pattern = c["file"].replace("{id}", item.id)
+            pattern = c["file"].replace("{id}", ref_id)
             hits = globlib.glob(str(project.root / pattern))
             results.append({"name": name, "label": c["label"], "passed": bool(hits),
                             "detail": f"needs a file matching {pattern}" if not hits else hits[0]})

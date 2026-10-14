@@ -19,7 +19,7 @@ HEADER = """# Owner actions
 Things only the owner can do: accounts, money, judgement, people. Tick the box when done and write
 notes under an item (indented) — agents read this file at the start of every session.
 """
-ITEM_RE = re.compile(r"^- \[(.)\] (?:(O\d+)\s+)?(.*)$")
+ITEM_RE = re.compile(r"^(\s*)- \[(.)\] (?:(O\d+)\s+)?(.*)$")
 SECTION_RE = re.compile(r"^##\s+(.+?)\s*$")
 
 
@@ -28,24 +28,43 @@ class OwnerActions:
         self.project = project
         self.path = project.dir / OWNER_NAME
         self.lines = self.path.read_text().splitlines() if self.path.exists() else HEADER.splitlines()
+        if self.path.exists():
+            self.assign_missing_ids()  # items the owner added by hand get an O<n> the first time SPEKY reads them
 
     def items(self) -> List[dict]:
-        result, section, current = [], "", None
+        """Checkbox items, nested ones too (`parent`); indented lines under an item are its notes."""
+        result, section, current, stack = [], "", None, []
         for i, line in enumerate(self.lines):
             s = SECTION_RE.match(line)
             if s and not line.startswith("###"):
-                section, current = s.group(1), None
+                section, current, stack = s.group(1), None, []
                 continue
             m = ITEM_RE.match(line)
             if m:
-                current = {"id": m.group(2) or "", "done": m.group(1).lower() == "x", "text": m.group(3).strip(),
-                           "section": section, "notes": [], "line": i}
+                indent = len(m.group(1).expandtabs(2))
+                while stack and stack[-1]["indent"] >= indent:
+                    stack.pop()
+                current = {"id": m.group(3) or "", "done": m.group(2).lower() == "x", "text": m.group(4).strip(),
+                           "section": section, "notes": [], "line": i, "end": i, "indent": indent,
+                           "parent": stack[-1]["id"] if stack else None}
                 result.append(current)
+                stack.append(current)
                 continue
-            if current is not None and line.startswith((" ", "\t")) and line.strip():
-                current["notes"].append(line.strip())
-            elif line.strip() and not line.startswith((" ", "\t")):
-                current = None
+            if not line.strip():
+                continue
+            if current is not None and len(line) - len(line.lstrip()) > current["indent"]:
+                if not current["notes"] and not re.match(r"^\s*(?:[-*]|\d+\.)\s", line):
+                    current["text"] += " " + line.strip()  # the item's text wraps onto this line
+                else:
+                    current["notes"].append(line.strip())
+                current["end"] = i
+            else:  # an indented line that belongs to an outer item
+                while stack and len(line) - len(line.lstrip()) <= stack[-1]["indent"]:
+                    stack.pop()
+                current = stack[-1] if stack else None
+                if current is not None:
+                    current["notes"].append(line.strip())
+                    current["end"] = i
         return result
 
     def open_items(self) -> List[dict]:
@@ -65,7 +84,7 @@ class OwnerActions:
         for item in self.items():
             if not item["id"]:
                 m = ITEM_RE.match(self.lines[item["line"]])
-                self.lines[item["line"]] = f"- [{m.group(1)}] {self._next_id()} {m.group(3).strip()}"
+                self.lines[item["line"]] = f"{m.group(1)}- [{m.group(2)}] {self._next_id()} {m.group(4).strip()}"
                 changed += 1
         if changed:
             self.save()
@@ -97,9 +116,8 @@ class OwnerActions:
     def set_done(self, oid: str, done: bool = True, note: str = "") -> dict:
         item = self.get(oid)
         m = ITEM_RE.match(self.lines[item["line"]])
-        self.lines[item["line"]] = f"- [{'x' if done else ' '}] {item['id']} {m.group(3).strip()}"
+        self.lines[item["line"]] = f"{m.group(1)}- [{'x' if done else ' '}] {item['id']} {m.group(4).strip()}"
         if note:
-            insert_at = item["line"] + 1 + len(item["notes"])
-            self.lines[insert_at:insert_at] = [f"  - {note} ({now()[:10]})"]
+            self.lines[item["end"] + 1:item["end"] + 1] = [f"{m.group(1)}  - {note} ({now()[:10]})"]
         self.save()
         return self.get(oid)
