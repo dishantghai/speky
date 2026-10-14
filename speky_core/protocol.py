@@ -108,27 +108,38 @@ def _item_action(project: Project, item: Item) -> dict:
     from . import uxdesign
     if status in ("draft", "ready") and uxdesign.is_ui(project, item):
         st = uxdesign.state(project, item)
-        if not uxdesign.satisfied(st) or not st["system"]:
+        if not uxdesign.satisfied(st) or not st["system"] or st["unapproved"] or st["outside"]:
             todo = []
+            if st["outside"]:
+                todo.append("move the cited design files into the design locations (`speky design screen add "
+                            "<id> <files> --move`) and cite `screen:<id>`: " + ", ".join(st["outside"]))
+            if uxdesign.satisfied(st) and st["unapproved"]:
+                todo.append("the owner has not approved " + ", ".join(st["unapproved"]) + " yet: show it to them; "
+                            "on their yes run `speky design screen approve <id> --by \"<owner>\"`")
             if not st["system"]:
-                todo.append("there is no design-system document yet: create it from the existing UI (tokens, "
-                            "type, spacing, components) or the first approved screens, and set "
-                            "`paths.design_system`")
+                todo.append("there is no design-system document yet: write `.speky/design/system.md` (tokens, "
+                            "type, spacing, components) from the existing UI or the first approved screens")
             if not uxdesign.satisfied(st):
                 todo.append("find the design this change implements: `speky design status`, the screen "
                             "catalogue and `refs` (screen:<id>); if one exists, cite it in `## Design`. If none "
                             "exists, create it with the project's design tool (its playbook, or whatever is "
-                            "available: Stitch, Figma, an HTML mock), save it in the repo, give it an ID, "
-                            "review it, and cite it. Show new designs to the owner before building: design "
-                            "is their call")
-            return _action("design", item, "UI change without " + (
-                               "a cited design" if not uxdesign.satisfied(st) else "a design system") + ".",
+                            "available: Stitch, Figma, an HTML mock), export it into the design locations "
+                            "(`speky design screen add <id> <files> --for <item>`, which cites it), review it "
+                            "(`speky design screen review`), and have the owner approve it before anything is "
+                            "built: design is their call")
+            why = ("UI change without a cited design" if not uxdesign.satisfied(st) else
+                   "UI change without a design system" if not st["system"] else
+                   "Design files outside the design locations" if st["outside"] else
+                   "Design not approved yet: " + ", ".join(st["unapproved"]))
+            return _action("design", item, why + ".",
                            "This change affects what users see; " + "; ".join(todo) + ".",
                            skill="speky-design", read=[doc] + ([project.root / st["system"]] if st["system"] else []),
-                           commands=["speky design status --json", "speky refs --json",
-                                     f"speky gate add {item.id} --type human --reason \"approve the design\"",
+                           commands=["speky design status --json",
+                                     f"speky design screen add <screen-id> <files> --for {item.id} --state <state>",
+                                     "speky design screen approve <screen-id> --by \"<owner>\"",
                                      f"speky check {item.id} --json"],
-                           done_when=f"`## Design` in {rel_doc} cites the design and a design system exists")
+                           done_when=f"`## Design` in {rel_doc} cites approved screens (or says no new design is "
+                                     "needed) and a design system exists")
 
     if status in ("draft", "ready") and not validation.is_converged(item):
         val = item.load_status().get("validation") or {}
@@ -416,9 +427,11 @@ def prime(project: Project, limit_items: int = 5) -> str:
             lines.append(f"- `{k['file']}` ({k['entries']} entries){when}")
 
     context_dir = project.dir / "context"
-    refs = [f"`.speky/context/{n}`" for n in ("tech_decisions.md", "product.md", "architecture.md",
-                                              "design_system.md") if (context_dir / n).exists()]
-    from . import journal
+    refs = [f"`.speky/context/{n}`" for n in ("tech_decisions.md", "product.md", "architecture.md")
+            if (context_dir / n).exists()]
+    from . import journal, layout, uxdesign
+    if uxdesign.design_system(project):
+        refs.append(f"`{uxdesign.design_system(project)}`")
     adr_rel = journal.adr_dir(project)
     if adr_rel.is_dir():
         refs.append(f"`{adr_rel.relative_to(project.root)}/`")
@@ -426,6 +439,12 @@ def prime(project: Project, limit_items: int = 5) -> str:
         lines += ["", "## Project knowledge",
                   "Before choosing a library, a pattern or a UI approach, read " + ", ".join(refs)
                   + " — they record decisions the code can't show."]
+    moved = layout.summary_lines(project)
+    lines += ["", "## Where things go",
+              "Non-code artifacts have fixed homes (`speky layout`): changes in `.speky/specs|stories/`, knowledge "
+              "in `.speky/knowledge/`, designs in `.speky/design/` (system.md, screens/<id>/, reviews/), ADRs in "
+              "`.speky/adr/`. Never invent another place." + (" This project moved: " + "; ".join(moved) + "."
+                                                              if moved else "")]
     if (project.dir / "testing" / "ide_context.md").exists():
         lines += ["", "## Testing",
                   "Before writing or running tests, read `.speky/testing/ide_context.md` "

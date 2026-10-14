@@ -88,6 +88,16 @@ def plan(project: Project) -> Dict:
     if pending_actions:
         steps.append({"step": "import_v2_validation", "detail": f"{len(pending_actions)} validation_actions.json → findings ledgers",
                       "items": [p.parent.name for p in pending_actions]})
+    from . import design as design_mod, layout as layout_mod
+    legacy_system = project.dir / "context" / "design_system.md"
+    if legacy_system.exists() and not (project.config.get("paths") or {}).get("design_system") \
+            and not design_mod.system_path(project).exists():
+        steps.append({"step": "move_design_system",
+                      "detail": ".speky/context/design_system.md → .speky/design/system.md (standard layout)"})
+    if design_mod.legacy_assets(project):
+        steps.append({"step": "convert_v2_design", "detail": "v2 design assets ({hifi,lofi,system,icons}/source) → "
+                      ".speky/design/screens/<id>/, system.md, icons/ (links and analyses kept)",
+                      "counts": design_mod.legacy_assets(project)})
     if (project.dir / "testing" / "config.yaml").exists() and not (project.config.get("testing")
                                                                      if (project.dir / config.CONFIG_NAME).exists() else None):
         steps.append({"step": "import_v2_testing", "detail": "testing/config.yaml → speky.yaml testing (+ detected commands)"})
@@ -116,9 +126,11 @@ def plan(project: Project) -> Dict:
     design_folders = uxdesign.find_design_folders(project)
     if design_folders:
         judgement.append({"task": "register_design_folders", "items": design_folders,
-                          "detail": "Folders that look like screen designs. If they are, "
-                                    "`speky config set paths.design_screens <folder>` (a list for several) so "
-                                    "agents find existing designs before making new ones; cite them in UI items."})
+                          "detail": "Folders outside the standard layout that look like screen designs. Import "
+                                    "them (`speky design screen add <id> <files> --move`, one ID per screen) so "
+                                    "every project keeps designs in .speky/design/screens/; only when tooling "
+                                    "depends on the folder, keep it and `speky config set paths.design_screens "
+                                    "<folder>`. Then cite screens in UI items."})
     if ui_unclear:
         judgement.append({"task": "classify_ui_items", "items": ui_unclear,
                           "detail": "Open items that read as user-facing but don't say which design they "
@@ -200,6 +212,14 @@ def apply(project: Project) -> Dict:
                     state = str(a.get("status", "pending")).lower()
                     if state not in ("pending", "open") and not f.get("duplicate"):
                         ledger.resolve(f["id"], "accepted", f"handled in v2 validation ({a.get('intent', state)})")
+        elif step["step"] == "move_design_system":
+            from . import design as design_mod
+            target = design_mod.system_path(project)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            (project.dir / "context" / "design_system.md").rename(target)
+        elif step["step"] == "convert_v2_design":
+            from . import design as design_mod
+            design_mod.convert_legacy(project)
         elif step["step"] == "import_v2_testing":
             from . import testing
             testing.init(project)

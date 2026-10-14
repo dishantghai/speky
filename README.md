@@ -79,10 +79,30 @@ speky archive 001                      # merges the change into the living specs
 speky commit 001                       # commit message built from the item; secrets are never staged
 ```
 
-UI changes (`--labels ui`) also get a `## Design` section: the change cites the screens or design
-files it implements, or SPEKY's `design` step has the agent find or create one (with Stitch, Figma
-or whatever the project uses) and the owner approves it before it is built. The project keeps one
-design-system document (`paths.design_system`), and implementation reads it with the cited designs.
+UI changes (`--labels ui`) also get a `## Design` section citing the screens they implement
+(`screen:<id>`). If none exists, SPEKY's `design` step has the agent find or create one (with Stitch,
+Figma or whatever the project uses), store it in `.speky/design/screens/<id>/` and get the owner's
+approval before it is built. Implementation reads the design system and the cited screens.
+
+## Where things are
+
+Every SPEKY project keeps its non-code artifacts in the same places; `speky layout` prints the map and
+`speky layout --check` finds artifacts kept elsewhere. Code is not covered: that is the project's call.
+
+```
+.speky/speky.yaml                     settings
+.speky/specs/ · .speky/stories/       changes (spec.md|story.md, plan.md, deltas/, findings, evidence)
+.speky/capabilities/<cap>/spec.md     living specs: how the system behaves now
+.speky/phases/ · .speky/tasks.md      phases (deliverables = gate) and tasks
+.speky/knowledge/<topic>.md           project knowledge · .speky/decisions.md  decision log
+.speky/adr/                           ADRs                                    (paths.adr_dir)
+.speky/design/system.md               design system                           (paths.design_system)
+.speky/design/screens/<id>/           screens, catalogue in screens.md        (paths.design_screens)
+.speky/design/reviews/                design and UX reviews                   (paths.design_reviews)
+.speky/owner.md · log.md · state.md   owner actions, session log, where things stand
+```
+
+Only the entries with a `paths.*` key can move, for tooling that depends on another folder.
 
 `speky context 001` lists what to read for an item and why: knowledge, decisions and ADRs, design,
 phase, epic, related specs, dependencies and the item itself. `speky status` shows the whole project.
@@ -125,7 +145,7 @@ speky deps add 003 001                         # 003 depends on 001; `speky orde
 verify_command: "pnpm test"         # what `speky verify` runs
 agent_profile: conservative         # or team-maintainer (commits handoffs, archives verified work)
 testing: {coverage_command: "…", coverage_threshold: 80, e2e_command: "npx playwright test"}
-paths: {adr_dir: docs/adr, design_system: docs/ux/DESIGN.md}
+paths: {adr_dir: docs/adr}            # only to keep existing tooling working (see Where things are)
 playbooks:                          # a kind of work with its own workflow, by label (--labels ui)
   ui: {skill: screen-design-narratives, read: [docs/ux/stitch.md]}
 extra_skills: [~/.claude/skills/screen-design-narratives]   # installed by `speky setup` for every tool

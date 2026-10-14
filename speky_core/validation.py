@@ -94,8 +94,14 @@ def run_rubric(project: Project, item: Item, cfg: dict) -> List[dict]:
               "files or links, per state), or \"No new design needed: <why>\". Find an existing design first; "
               "if none exists, create one (speky-design skill)",
               "to be designed" if st["to_design"] and not st["not_needed"] else ", ".join(st["cited"]))
-        check("design_refs", not st["broken"], "major", "Design references in `## Design` must exist",
-              ", ".join(st["broken"]))
+        check("design_refs", not st["broken"], "major", "Design references in `## Design` must exist "
+              "(and not be superseded)", ", ".join(st["broken"]))
+        check("design_location", not st["outside"], "major",
+              "Designs live in the design locations (`speky layout`): import them with `speky design screen add "
+              "<id> <files> --move` and cite `screen:<id>`", ", ".join(st["outside"]))
+        if st["links"] and not st["cited"] and not st["not_needed"]:
+            check("design_in_repo", False, "major", "A design-tool link is a pointer, not the design: export "
+                  "the screens into the repo (`speky design screen add`) and cite them", ", ".join(st["links"]))
         check("design_system", bool(st["system"]), "major",
               "This project has UI work but no design-system document: create one (speky-design skill) "
               "and set `paths.design_system` in speky.yaml")

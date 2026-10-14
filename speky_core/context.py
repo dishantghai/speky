@@ -5,7 +5,6 @@ guides. The packet lists files to read with a reason and a few facts inline; `--
 documents. Layers, broad to specific: project knowledge → tech decisions/ADRs → design → phase →
 epic → related specs → dependencies → the item itself (doc, plan, deltas, findings, evidence).
 """
-import json
 from pathlib import Path
 from typing import List, Optional
 
@@ -49,25 +48,22 @@ def _project_layers(project: Project, full: bool) -> List[dict]:
 
 
 def _design_layers(project: Project, item_id: str, full: bool) -> List[dict]:
-    design = project.dir / "design"
+    from . import design, uxdesign
     layers = []
-    configured = (project.config.get("paths") or {}).get("design_system")
-    system = project.root / configured if configured else project.dir / "context" / "design_system.md"
-    if system.exists():
-        layers.append(_layer(project, "design", system, "design system: tokens and components to reuse", full))
-    manifest = design / "manifest.json"
-    if manifest.exists():
-        data = json.loads(manifest.read_text())
-        for kind in ("hifi", "lofi"):
-            for img in data.get(f"{kind}_images", []):
-                if any(item_id.startswith(str(s)) or str(s).startswith(item_id) for s in img.get("related_specs", [])):
-                    src = design / kind / "source" / img["filename"]
-                    entry = {"layer": "design", "read": _rel(project, src) if src.exists() else img["filename"],
-                             "why": f"{kind} design for this item"
-                                    + (" — match it pixel-perfect" if kind == "hifi" else " — guidance")}
-                    if img.get("analysis_path") and (project.dir / img["analysis_path"]).exists():
-                        entry["analysis"] = _rel(project, project.dir / img["analysis_path"])
-                    layers.append(entry)
+    system = uxdesign.design_system(project)
+    if system:
+        layers.append(_layer(project, "design", project.root / system,
+                             "design system: tokens and components to reuse", full))
+    item = project.try_find(item_id)
+    cited = set(uxdesign.state(project, item)["cited"]) if item else set()
+    for sc in design.screens(project):
+        if item_id in sc["items"] or sc["path"] in cited:
+            entry = {"layer": "design", "read": sc["path"], "screen": sc["id"], "status": sc["status"],
+                     "why": f"screen {sc['id']} ({', '.join(sc['states']) or 'design'}) — build what it shows"}
+            analysis = project.root / sc["path"] / "analysis.md"
+            if analysis.exists():
+                entry["analysis"] = _rel(project, analysis)
+            layers.append(entry)
     return layers
 
 

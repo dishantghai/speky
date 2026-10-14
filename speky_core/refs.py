@@ -19,12 +19,16 @@ from .items import Project
 def _kinds(project: Project) -> Dict[str, dict]:
     kinds = dict(project.config.get("refs") or {})
     kinds.setdefault("item", {"builtin": "item"})
+    kinds.setdefault("screen", {"builtin": "screen"})  # .speky/design/screens/<id>/ (or paths.design_screens)
     return kinds
 
 
 def resolve(project: Project, kind: str, ref_id: str, spec: dict) -> bool:
     if spec.get("builtin") == "item":
         return project.try_find(ref_id) is not None
+    if spec.get("builtin") == "screen":
+        from . import design
+        return design.find_screen(project, ref_id) is not None
     if "glob" in spec:
         return bool(globlib.glob(str(project.root / spec["glob"].replace("{id}", ref_id))))
     if "file" in spec:
@@ -39,6 +43,10 @@ def locate(project: Project, kind: str, ref_id: str, spec: dict) -> Optional[str
     if spec.get("builtin") == "item":
         item = project.try_find(ref_id)
         return str(item.doc_path.relative_to(project.root)) if item else None
+    if spec.get("builtin") == "screen":
+        from . import design
+        s = design.find_screen(project, ref_id)
+        return s["path"] if s else None
     if "glob" in spec:
         hits = sorted(globlib.glob(str(project.root / spec["glob"].replace("{id}", ref_id))))
         return str(Path(hits[0]).relative_to(project.root)) if hits else None

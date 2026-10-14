@@ -175,6 +175,7 @@ def test_decisions_and_config(project):
 
 # ---------------------------------------------------------------- design
 def test_design_assets_links_analysis_conflicts(project, tmp_path):
+    """v2's `design add/link/analysis/conflict/resolve` land in the standard layout."""
     img = tmp_path / "screen.png"
     img.write_bytes(b"\x89PNG")
     system = tmp_path / "design_system.md"
@@ -182,16 +183,18 @@ def test_design_assets_links_analysis_conflicts(project, tmp_path):
     cli("spec", "Import video")
     cli("design", "init", "--tech", "react")
     cli("design", "add", str(system), "--type", "system")
+    assert (project.dir / "design" / "system.md").exists()
     out = cli("design", "add", str(img), "--type", "hifi", "--for", "001")
-    assert out["images"] == 1 and out["unlinked"] == []
+    assert out["added"] == ["screen"] and (project.dir / "design" / "screens" / "screen" / "screen.png").exists()
+    assert "screen:screen" in project.find("001").read_doc()
     analysis = tmp_path / "a.md"
     analysis.write_text("Primary looks like #112244")
-    cli("design", "analysis", "screen.png", "--from", str(analysis))
+    cli("design", "analysis", "screen", "--from", str(analysis))
     c = cli("design", "conflict", "color", "primary", "--existing", "#112233", "--new", "#112244")
     assert cli("design", "status")["open_conflicts"][0]["id"] == c["id"]
     cli("design", "resolve", c["id"], "--value", "#112233", "--reason", "system wins")
     st = cli("design", "status")
-    assert st["analyzed"] == 1 and st["open_conflicts"] == []
+    assert st["open_conflicts"] == [] and st["screens"][0]["items"] == ["001"]
     packet = cli("context", "001")
     assert any(l["layer"] == "design" and l.get("analysis") for l in packet["layers"])
 

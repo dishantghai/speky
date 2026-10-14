@@ -34,7 +34,7 @@ COMMANDS = {"capabilities", "task", "phases", "owner", "knowledge", "handoff", "
             "reset-deps", "fix-circular-deps", "decisions", "reconcile", "poc-import", "spec", "story",
             "renumber", "host", "sync", "run", "new", "state", "ready", "next", "check", "finding", "start", "evidence", "verify",
             "archive", "decide", "remember", "adr", "term", "gate", "link", "prime", "setup",
-            "migrate", "set"}
+            "migrate", "set", "layout"}
 
 HELP = """SPEKY: spec-driven development for AI coding agents.
 
@@ -57,7 +57,8 @@ Building
   check <id>  ·  finding add|list|resolve     validation that converges
   plan | context <id>                         planning / context packet (pointers for the agent)
   implement <id> (= start)  ·  evidence <id> <R#>  ·  verify <id>  ·  complete <id>  ·  archive <id>
-  commit <id>  ·  review [<id>]  ·  cleanup  ·  test init|run|coverage|gaps|link|red|green  ·  design …
+  commit <id>  ·  review [<id>]  ·  cleanup  ·  test init|run|coverage|gaps|link|red|green
+  design status|screen add|list|approve|supersede|review|link|add|analysis|conflict|resolve
 
 Memory and session
   handoff  ·  checkpoint  ·  prime  ·  status | state | ready  ·  remember --topic  ·  knowledge
@@ -65,7 +66,7 @@ Memory and session
 
 Setup
   setup <claude-code|codex|cursor|windsurf|vscode|antigravity|agents-md>  ·  config get|set|model|providers
-  migrate [--apply|--done TASK]
+  layout [--check] (where every non-code artifact lives)  ·  migrate [--apply|--done TASK]
 
 v2 names that still work: adopt, validate-spec, validate-story (= check), sequence (= order),
   mark-foundation, reset-deps, fix-circular-deps, infer-deps (= deps …), decisions, epics, import-status,
@@ -295,6 +296,8 @@ def _parser() -> argparse.ArgumentParser:
 
     sp = add("prime")
     sp.add_argument("--hook-json", action="store_true")
+    sp = add("layout", help="where every non-code artifact lives (defaults and overrides)")
+    sp.add_argument("--check", action="store_true", help="report artifacts kept where SPEKY doesn't look")
     sp = add("setup")
     sp.add_argument("harness", nargs="?")
     sp.add_argument("--check", action="store_true")
@@ -406,11 +409,39 @@ def _parser() -> argparse.ArgumentParser:
     ga.add_argument("--for", dest="item", default=None)
     ga.add_argument("--json", action="store_true")
     gl = gsub.add_parser("link")
-    gl.add_argument("file")
+    gl.add_argument("file", metavar="screen", help="screen ID (or a file name)")
     gl.add_argument("item")
     gl.add_argument("--json", action="store_true")
+    gsc = gsub.add_parser("screen", help="screens: add, list, approve, supersede, review")
+    ssub = gsc.add_subparsers(dest="screen_action", required=True)
+    s_add = ssub.add_parser("add")
+    s_add.add_argument("id")
+    s_add.add_argument("files", nargs="*")
+    s_add.add_argument("--title", default="")
+    s_add.add_argument("--kind", default="hifi", choices=["hifi", "lofi", "wireframe", "flow"])
+    s_add.add_argument("--state", action="append", default=[], help="state shown (repeatable): default, empty, …")
+    s_add.add_argument("--for", dest="item", default=None)
+    s_add.add_argument("--source", default="", help="tool or link it came from (e.g. a Stitch project URL)")
+    s_add.add_argument("--move", action="store_true", help="move the files instead of copying them")
+    s_add.add_argument("--json", action="store_true")
+    s_list = ssub.add_parser("list")
+    s_list.add_argument("--json", action="store_true")
+    s_ap = ssub.add_parser("approve")
+    s_ap.add_argument("id")
+    s_ap.add_argument("--by", required=True)
+    s_ap.add_argument("--note", default="")
+    s_ap.add_argument("--json", action="store_true")
+    s_su = ssub.add_parser("supersede")
+    s_su.add_argument("id")
+    s_su.add_argument("--by", dest="new", required=True, metavar="NEW_ID")
+    s_su.add_argument("--json", action="store_true")
+    s_rv = ssub.add_parser("review")
+    s_rv.add_argument("id")
+    s_rv.add_argument("--file", required=True)
+    s_rv.add_argument("--result", required=True, choices=["pass", "fail"])
+    s_rv.add_argument("--json", action="store_true")
     gn = gsub.add_parser("analysis")
-    gn.add_argument("file")
+    gn.add_argument("file", metavar="screen")
     gn.add_argument("--from", dest="analysis", required=True, help="markdown file with the analysis")
     gn.add_argument("--json", action="store_true")
     gc = gsub.add_parser("conflict")
@@ -778,6 +809,9 @@ def run(argv: List[str]) -> dict:
         return graph.add_link(project, project.find(args.id), args.type, args.to)
     if cmd == "prime":
         return protocol.prime_hook_json(project) if args.hook_json else protocol.prime(project)
+    if cmd == "layout":
+        from . import layout as layout_mod
+        return layout_mod.check(project) if args.check else {"layout": layout_mod.describe(project)}
     if cmd == "setup":
         if not args.harness:
             raise SpekyError("harness_required", "Name a harness.",
@@ -906,6 +940,18 @@ def run(argv: List[str]) -> dict:
             return design_mod.add(project, args.path, args.kind, args.item)
         if action == "link":
             return design_mod.link(project, args.file, args.item)
+        if action == "screen":
+            sa = args.screen_action
+            if sa == "add":
+                return design_mod.screen_add(project, args.id, args.files, args.title, args.kind, args.state,
+                                             args.item, args.source, args.move)
+            if sa == "approve":
+                return design_mod.approve(project, args.id, args.by, args.note)
+            if sa == "supersede":
+                return design_mod.supersede(project, args.id, args.new)
+            if sa == "review":
+                return design_mod.review(project, args.id, args.file, args.result)
+            return {"screens": design_mod.screens(project)}
         if action == "analysis":
             return design_mod.record_analysis(project, args.file, args.analysis)
         if action == "conflict":

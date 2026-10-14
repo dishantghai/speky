@@ -22,10 +22,10 @@ Goal: a short contract someone could build without guessing — and no longer th
      `#### Scenario:` using GIVEN / WHEN / THEN lines. Cover the error or empty state.
    - `## Assumptions` — every informed guess you made instead of asking.
    - **UI changes** (anything users see): label it (`--labels ui`, or `speky set <id> --labels ui`) and
-     fill `## Design`: the screen IDs (`screen:<id>`) or design files it implements, per state (default,
-     empty, error, loading), and the design system. Look for an existing design first
-     (`speky design status --json`, the screen catalogue). None yet → "To be designed" (the design step
-     comes next); nothing visual changes → "No new design needed: <why>".
+     fill `## Design`: the screens it implements (`screen:<id>` from `.speky/design/screens.md`), per
+     state (default, empty, error, loading). Look for an existing design first (`speky design status
+     --json`). None yet → "To be designed" (the design step comes next); nothing visual changes →
+     "No new design needed: <why>".
    - At most 3 `[NEEDS CLARIFICATION: ...]` markers; guess the rest and list them as assumptions.
 4. Requirements describe behaviour, not implementation. No class names, no library choices
    (those go in plan.md). If behaviour of an existing capability changes, write

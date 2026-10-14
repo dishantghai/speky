@@ -416,43 +416,61 @@ def test_labelled_task_must_meet_its_done_checks(project):
     assert cli("task", "done", "W1", "--verify")["status"] == "done"
 
 
-def test_ui_changes_must_cite_a_design_and_the_project_needs_a_design_system(project):
-    from speky_core import config, uxdesign
-    (project.root / "docs" / "ux" / "screens").mkdir(parents=True)
-    (project.root / "docs" / "ux" / "screens" / "README.md").write_text("| `LE-1-main` | Layers editor |\n")
-    cfg = project.config
-    cfg["refs"] = {"screen": {"file": "docs/ux/screens/README.md", "contains": "`{id}`"}}
-    config.save(project.root, cfg)
+def test_ui_changes_must_cite_an_approved_design_in_the_standard_layout(project, tmp_path):
+    from speky_core import uxdesign
     out = cli("story", "Layers editor", "--labels", "ui")
     item = project.find(out["item"])
-    doc = item.read_doc()
-    assert "## Design" in doc and "To be designed" in doc
+    assert "## Design" in item.read_doc() and "To be designed" in item.read_doc()
     item.doc_path.write_text(GOOD_SPEC.replace("## Requirements", "## Design\nTo be designed\n\n## Requirements"))
     nxt = protocol.next_action(project)
     assert nxt["action"] == "design" and nxt["skill"] == "speky-design"
-    assert "no design-system document" in nxt["instruction"] and "approve the design" in " ".join(nxt["commands"])
+    assert ".speky/design/system.md" in nxt["instruction"]
+    assert any("screen approve" in c for c in nxt["commands"])
     rubric = {r["rubric"]: r["passed"] for r in validation.run_rubric(project, item, project.config)}
     assert rubric["design"] is False and rubric["design_system"] is False
-    # cite the screen and create the design system
-    (project.root / "docs" / "ux" / "DESIGN.md").write_text("# Design system\n")
-    cfg["paths"] = {"design_system": "docs/ux/DESIGN.md"}
-    config.save(project.root, cfg)
-    item.doc_path.write_text(GOOD_SPEC.replace(
-        "## Requirements", "## Design\n- Screens: screen:LE-1-main (default), screen:LE-9-gone (empty)\n\n## Requirements"))
+    # the agent designs it: system document + a screen in the standard layout, cited by `--for`
+    (project.dir / "design").mkdir()
+    (project.dir / "design" / "system.md").write_text("# Design system\n")
+    png = tmp_path / "main.png"
+    png.write_bytes(b"png")
+    cli("design", "screen", "add", "layers-editor-main", str(png), "--for", item.id, "--state", "default")
+    doc = item.read_doc()
+    assert "- screen:layers-editor-main" in doc and "To be designed" not in doc
     st = uxdesign.state(project, item)
-    assert st["cited"] == ["docs/ux/screens/README.md"] and st["broken"] == ["screen:LE-9-gone"]
-    rubric = {r["rubric"]: r["passed"] for r in validation.run_rubric(project, item, project.config)}
-    assert rubric["design"] and rubric["design_system"] and not rubric["design_refs"]
-    item.doc_path.write_text(GOOD_SPEC.replace(
-        "## Requirements", "## Design\n- Screens: screen:LE-1-main\n\n## Requirements"))
+    assert st["cited"] == [".speky/design/screens/layers-editor-main"] and st["unapproved"] == ["layers-editor-main"]
+    nxt = protocol.next_action(project)
+    assert nxt["action"] == "design" and "not approved" in nxt["why"]
+    cli("design", "screen", "approve", "layers-editor-main", "--by", "owner")
     assert protocol.next_action(project)["action"] == "validate"
+    assert "approved by owner" in " ".join(journal.decisions(project))
     cli("check", item.id)
     item.update_status(status="in_progress")
     nxt = protocol.next_action(project)
-    assert nxt["action"] == "implement" and "docs/ux/DESIGN.md" in nxt["read"]
-    assert "Build what the cited designs show" in nxt["instruction"]
-    status = cli("design", "status")
-    assert status["design_system"] == "docs/ux/DESIGN.md" and status["needing_design"] == []
+    assert ".speky/design/system.md" in nxt["read"] and ".speky/design/screens/layers-editor-main" in nxt["read"]
+    catalogue = (project.dir / "design" / "screens.md").read_text()
+    assert "`layers-editor-main`" in catalogue and "approved" in catalogue
+    # a new iteration supersedes; citing the old one is then a broken reference
+    cli("design", "screen", "add", "layers-editor-main-v2", str(png))
+    out = cli("design", "screen", "add", "layers-editor-main", str(png), expect=1)
+    assert out["error"]["code"] == "screen_approved"
+    cli("design", "screen", "supersede", "layers-editor-main", "--by", "layers-editor-main-v2")
+    assert "superseded" in uxdesign.state(project, item)["broken"][0]
+
+
+def test_design_files_outside_the_layout_and_tool_links_are_flagged(project):
+    from speky_core import uxdesign
+    (project.dir / "design").mkdir()
+    (project.dir / "design" / "system.md").write_text("# DS\n")
+    (project.root / "mocks").mkdir()
+    (project.root / "mocks" / "a.png").write_bytes(b"png")
+    item = spec(project, body=GOOD_SPEC.replace("## Requirements",
+                "## Design\n- `mocks/a.png`\n\n## Requirements"))
+    rubric = {r["rubric"]: r["passed"] for r in validation.run_rubric(project, item, project.config)}
+    assert rubric["design_location"] is False
+    item.doc_path.write_text(GOOD_SPEC.replace("## Requirements",
+                             "## Design\n- [Stitch](https://stitch.withgoogle.com/p/1)\n\n## Requirements"))
+    rubric = {r["rubric"]: r["passed"] for r in validation.run_rubric(project, item, project.config)}
+    assert rubric["design_in_repo"] is False and not uxdesign.satisfied(uxdesign.state(project, item))
 
 
 def test_no_new_design_needed_is_a_valid_answer_and_design_decisions_is_not_a_design_section(project):
@@ -485,19 +503,42 @@ def test_promote_carries_labels_and_refs_and_unlabelled_ui_text_is_flagged(proje
     assert "label it" in protocol.action_for(project, spec(project, "Empty", body=None))["instruction"]
 
 
-def test_design_screen_folders_found_registered_and_citable_with_spaces(project):
-    from speky_core import config, uxdesign
+def test_layout_defaults_overrides_and_check(project):
+    from speky_core import config, layout
+    rows = {r["kind"]: r for r in cli("layout")["layout"]}
+    assert rows["design_screens"]["path"] == ".speky/design/screens/<screen-id>/" and not rows["adr_dir"]["overridden"]
     folder = project.root / "project_ops" / "HIFI_UI_DESIGN_SCREENS"
     folder.mkdir(parents=True)
     for n in ("Browser Tab Bar", "Settings Screen", "Space Card Design"):
         (folder / f"{n}.png").write_bytes(b"png")
-    assert uxdesign.find_design_folders(project) == ["project_ops/HIFI_UI_DESIGN_SCREENS"]
+    (project.root / "docs" / "decisions").mkdir(parents=True)
+    for n in ("0001-a.md", "0002-b.md"):
+        (project.root / "docs" / "decisions" / n).write_text("# ADR\n\nStatus: Accepted\n")
+    problems = {p["kind"]: p["path"] for p in cli("layout", "--check")["problems"]}
+    assert problems == {"design_screens": "project_ops/HIFI_UI_DESIGN_SCREENS", "adr_dir": "docs/decisions"}
+    # import the screens into the standard layout (one ID per screen) — the folder is emptied
+    for f in sorted(folder.iterdir()):
+        cli("design", "screen", "add", f.stem.lower().replace(" ", "-"), str(f), "--move")
+    assert not any(folder.iterdir())
+    assert cli("design", "screen", "list")["screens"][0]["id"] == "browser-tab-bar"
     cfg = project.config
-    cfg["paths"] = {"design_screens": "project_ops/HIFI_UI_DESIGN_SCREENS"}
+    cfg["paths"] = {"adr_dir": "docs/decisions"}
     config.save(project.root, cfg)
-    status = cli("design", "status")
-    assert "project_ops/HIFI_UI_DESIGN_SCREENS/Browser Tab Bar.png" in status["screens"]
-    assert status["unregistered_design_folders"] == []
+    assert cli("layout", "--check")["valid"]
+    assert rows["adr_dir"]["override"] == "paths.adr_dir"
+    assert "adr_dir: `docs/decisions`" in protocol.prime(project)
+
+
+def test_override_screen_folder_with_flat_files_is_citable(project):
+    from speky_core import config, uxdesign
+    folder = project.root / "ux"
+    folder.mkdir()
+    (folder / "Browser Tab Bar.png").write_bytes(b"png")
+    cfg = project.config
+    cfg["paths"] = {"design_screens": "ux"}
+    config.save(project.root, cfg)
     item = spec(project, body=GOOD_SPEC.replace("## Requirements",
-        "## Design\n- Tab bar: `project_ops/HIFI_UI_DESIGN_SCREENS/Browser Tab Bar.png`\n\n## Requirements"))
-    assert uxdesign.state(project, item)["cited"] == ["project_ops/HIFI_UI_DESIGN_SCREENS/Browser Tab Bar.png"]
+                "## Design\n- screen:browser-tab-bar\n- `ux/Browser Tab Bar.png`\n\n## Requirements"))
+    st = uxdesign.state(project, item)
+    assert st["cited"] == ["ux/Browser Tab Bar.png"] and st["outside"] == [] and st["broken"] == []
+

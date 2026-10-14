@@ -53,8 +53,8 @@ def memories(project: Project) -> list:
 
 
 def adr_dir(project: Project) -> Path:
-    configured = (project.config.get("paths") or {}).get("adr_dir")
-    return project.root / configured if configured else project.dir / "adr"
+    from . import layout
+    return layout.path(project, "adr_dir")
 
 
 def adr_new(project: Project, title: str, context: str = "", decision: str = "",

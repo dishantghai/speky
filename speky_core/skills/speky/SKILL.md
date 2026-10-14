@@ -28,6 +28,7 @@ Then ask `speky next --json` and follow it. After compaction, ask again — the 
 | `blocked` | work on what it waits for (`speky ready --json`) |
 | `idle` | ask the owner what's next; offer the deferred backlog (`speky backlog`) |
 
+Every non-code artifact has one home (`speky layout`); never invent another place.
 New project → speky-init. Documents or a prototype to bring in → speky-import. Screens and design
 system → speky-design. Old SPEKY v2 project or hand-kept notes → speky-migrate.
 

@@ -176,3 +176,30 @@ def test_migrate_lists_unclassified_ui_items_until_they_say_their_design(tmp_pat
     item.doc_path.write_text(item.read_doc().replace(
         "## Requirements", "## Design\nNo new design needed: the existing menu gains one entry.\n\n## Requirements"))
     assert "classify_ui_items" not in {j["task"] for j in cli("migrate")["judgement"]}
+
+
+def test_migrate_moves_v2_design_into_the_standard_layout(tmp_path, monkeypatch):
+    sp = make_v2_project(tmp_path)
+    (sp / "context" / "design_system.md").write_text("# DS\n")
+    d = sp / "design"
+    (d / "hifi" / "source").mkdir(parents=True)
+    (d / "hifi" / "source" / "Login Screen.png").write_bytes(b"png")
+    (d / "hifi" / "source" / "Login Screen.analysis.md").write_text("tokens")
+    (d / "icons" / "source").mkdir(parents=True)
+    (d / "icons" / "source" / "star.svg").write_text("<svg/>")
+    (d / "manifest.json").write_text(json.dumps({"technology": "react", "hifi_images": [
+        {"filename": "Login Screen.png", "related_specs": ["001"],
+         "analysis_path": "design/hifi/source/Login Screen.analysis.md"}], "lofi_images": [], "icons": [],
+        "conflicts": [{"type": "color", "location": "x"}]}))
+    monkeypatch.chdir(tmp_path)
+    steps = {s["step"] for s in cli("migrate")["pending"]}
+    assert {"move_design_system", "convert_v2_design"} <= steps
+    cli("migrate", "--apply")
+    assert (d / "system.md").read_text() == "# DS\n" and not (sp / "context" / "design_system.md").exists()
+    screen = d / "screens" / "login-screen"
+    assert (screen / "Login Screen.png").exists() and (screen / "analysis.md").read_text() == "tokens"
+    assert "001" in (screen / "screen.yaml").read_text() and (d / "icons" / "star.svg").exists()
+    assert not (d / "hifi").exists()
+    manifest = json.loads((d / "manifest.json").read_text())
+    assert manifest["technology"] == "react" and manifest["conflicts"][0]["id"] == "C1"
+    assert cli("migrate")["pending"] == []
