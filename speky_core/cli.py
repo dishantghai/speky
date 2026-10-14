@@ -47,9 +47,10 @@ Start here
 
 Work items
   spec | story "<title>"   create a change (also: new spec|story); --epic --related --files --phase
-  task add|start|done [--verify]|defer|promote|list   small work without a spec (verify W<n> runs the tests)
+  task add --for <spec|story> --closes R1 [--check "…"]   a task in a change's plan (closes its requirements)
+  task add --kind fix|chore|measure | --exception "…"   standalone small work · task start|done [--verify]|kind|attach|promote|list|show
   epic add|show|attach|detach|list            stories that share context
-  phases list|add|start|deliverable|verify|check|complete|order   phases; deliverables are the gate
+  phases list|add|start|deliverable|cover|verify|check|complete|order   phases; deliverables are the gate
   deps add|remove|clear|foundation|cycles  ·  order [--export]        dependencies and order
   set <id> --status|--priority  ·  link <id> --type …  ·  gate add|…  ·  backlog (deferred items)
 
@@ -219,6 +220,12 @@ def _parser() -> argparse.ArgumentParser:
     pd.add_argument("--run", default=None, help="command that proves the deliverable")
     pd.add_argument("--pass-criteria", default="")
     pd.add_argument("--json", action="store_true")
+    pcv = psub.add_parser("cover", help="which specs/stories deliver a deliverable (or why none is needed)")
+    pcv.add_argument("id")
+    pcv.add_argument("deliverable")
+    pcv.add_argument("--items", default="", help="comma-separated spec/story IDs")
+    pcv.add_argument("--not-behaviour", default=None, help="why no spec or story is needed (recorded)")
+    pcv.add_argument("--json", action="store_true")
     pv = psub.add_parser("verify")
     pv.add_argument("id")
     pv.add_argument("deliverable")
@@ -239,7 +246,25 @@ def _parser() -> argparse.ArgumentParser:
     ta.add_argument("--parent", default=None)
     ta.add_argument("--refs", default="", help="comma-separated, e.g. adr:0021,screen:RV-1")
     ta.add_argument("--labels", default="", help="comma-separated, e.g. ui (selects a playbook)")
+    ta.add_argument("--for", dest="item", default=None, help="the spec or story whose plan the task belongs to")
+    ta.add_argument("--closes", default="", help="requirement IDs or done checks it closes, e.g. R1,R2 (with --for)")
+    ta.add_argument("--check", default=None, help="command that proves the task (task done --verify runs it)")
+    ta.add_argument("--kind", dest="work", default=None, choices=["fix", "chore", "measure"],
+                    help="standalone task: small work that changes no behaviour")
+    ta.add_argument("--exception", default=None, help="standalone behaviour work without a spec: why (recorded)")
     ta.add_argument("--json", action="store_true")
+    tk = tsub.add_parser("kind", help="declare what a standalone task is")
+    tk.add_argument("id")
+    tk.add_argument("--kind", dest="work", default=None, choices=["fix", "chore", "measure"])
+    tk.add_argument("--exception", default=None)
+    tk.add_argument("--json", action="store_true")
+    tat = tsub.add_parser("attach", help="move a task into a spec/story plan, or into a phase/epic")
+    tat.add_argument("id")
+    tat.add_argument("item", nargs="?", help="spec or story (then --closes is required)")
+    tat.add_argument("--closes", default="")
+    tat.add_argument("--phase", default=None)
+    tat.add_argument("--epic", default=None)
+    tat.add_argument("--json", action="store_true")
     for name in ("start", "done", "defer", "todo"):
         tx = tsub.add_parser(name)
         tx.add_argument("id")
@@ -763,6 +788,9 @@ def run(argv: List[str]) -> dict:
             return phases_mod.set_status(project, args.id, "deferred").to_dict()
         if action == "deliverable":
             return phases_mod.add_deliverable(project, args.id, args.name, args.run, args.pass_criteria)
+        if action == "cover":
+            return phases_mod.cover(project, args.id, args.deliverable,
+                                    [i.strip() for i in args.items.split(",") if i.strip()], args.not_behaviour)
         if action == "verify":
             return phases_mod.verify_deliverable(project, args.id, args.deliverable, args.evidence)
         if action == "check":
@@ -773,7 +801,8 @@ def run(argv: List[str]) -> dict:
                 missing = [d["id"] for d in result["deliverables"] if not d["verified"]]
                 raise SpekyError("phase_gate_not_met",
                                  f"{args.id} is not done: unverified deliverables {missing or '-'}, "
-                                 f"open tasks {result['open_tasks'] or '-'}, open specs {result['open_specs'] or '-'}.",
+                                 f"open tasks {result['open_tasks'] or '-'}, open specs {result['open_specs'] or '-'}"
+                                 + (f", flags: {'; '.join(result['flags'])}" if result.get("flags") else "") + ".",
                                  f"Finish them, or `speky phases complete {args.id} --force \"<reason>\"`.")
             phase = phases_mod.set_status(project, args.id, "done")
             if args.force:
@@ -789,7 +818,15 @@ def run(argv: List[str]) -> dict:
         if args.action == "add":
             refs_ = [r.strip() for r in args.refs.split(",") if r.strip()]
             labels_ = [l.strip() for l in args.labels.split(",") if l.strip()]
-            return tasks.add(args.text, args.phase, args.epic, args.parent, refs_, labels=labels_)
+            closes = [c.strip() for c in args.closes.split(",") if c.strip()]
+            return tasks.add(args.text, args.phase, args.epic, args.parent, refs_, labels=labels_, item=args.item,
+                             closes=closes, check=args.check, work=args.work, exception=args.exception, enforce=True)
+        if args.action == "kind":
+            return tasks.set_kind(args.id, args.work, args.exception)
+        if args.action == "attach":
+            if args.item:
+                return tasks.attach(args.id, args.item, [c.strip() for c in args.closes.split(",") if c.strip()])
+            return tasks.place(args.id, args.phase, args.epic)
         if args.action == "list":
             rows = tasks.list(args.status, args.phase)
             if args.all or args.status:

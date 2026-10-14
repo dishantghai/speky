@@ -332,13 +332,16 @@ ACCOUNT_RE = re.compile(r"\b(account|logged in|signed in|api key|credentials?|wo
 FIXES = {
     "handoff": "actions only the owner can take → `speky owner add \"<what>\" --section \"<Do soon|Decide or "
                "provide|People>\"`; recommendations that need their decision → `speky owner add \"Decide: <question> "
-               "(recommended: <answer>, because …)\" --section \"Decide or provide\"`; plan changes → `speky task …`",
+               "(recommended: <answer>, because …)\" --section \"Decide or provide\"`; plan changes → behaviour gets "
+               "a spec or story (`speky new story|spec`, or `speky task promote`) with tasks in its plan (`speky task "
+               "add --for <id> --closes R1`); only small work is a standalone task (`--kind fix|chore|measure`)",
     "assumption": "assumptions → `speky decide \"…\" --type assumption`; what you promised to do next → `speky task "
                   "add` (or the Next list of a handoff)",
     "instruction": "the owner gave a standing instruction → `speky remember \"<rule>\" --topic owner --always` (or a "
                    "rule in AGENTS.md when it governs how work is done)",
-    "feedback": "the owner gave feedback → one task or finding per point (`speky task add \"…\" [--labels ui] [--refs "
-                "screen:<id>]` or `speky finding add <item> …`), and a note on the owner item it answers",
+    "feedback": "the owner gave feedback → per point: a story for changed behaviour (`speky new story \"…\" --type "
+                "bug|feature [--labels ui]`), a finding on the change it concerns (`speky finding add <id> …`), or a "
+                "small `speky task add --kind fix \"…\"`; and a note on the owner item it answers",
     "answer": "the owner answered an open decision → tick it, `speky owner done <id> --note \"<their answer>\"`, "
               "and `speky decide \"…\"`",
     "link": "the owner shared a link or an account → `speky remember \"<what it is, what it is for>\" --topic "

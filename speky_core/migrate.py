@@ -128,6 +128,14 @@ def plan(project: Project) -> Dict:
         steps.append({"step": "link_screen_tasks", "detail": f"{len(unlinked)} screen(s) name a task only in their "
                       "title; link them (screen metadata + the task's screen: references)",
                       "items": [f"{s} → {t}" for s, t in unlinked]})
+    from .tasks import Tasks
+    loose = Tasks(project).unclassified() if (project.dir / "backlog.json").exists() else []
+    if loose:
+        judgement.append({"task": "classify_tasks", "items": [t["id"] for t in loose],
+                          "detail": "Open tasks outside any spec/story plan with no kind. Behaviour work → `speky "
+                                    "task promote <W>` or `speky task attach <W> <spec|story> --closes R1`; small work "
+                                    "→ `speky task kind <W> --kind fix|chore|measure`; otherwise `--exception "
+                                    "\"<why>\"`. Clears itself when none is left."})
     design_folders = uxdesign.find_design_folders(project)
     if design_folders:
         judgement.append({"task": "register_design_folders", "items": design_folders,

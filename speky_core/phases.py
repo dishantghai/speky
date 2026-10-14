@@ -197,6 +197,47 @@ def set_status(project: Project, ref: str, status: str) -> Phase:
     return phase
 
 
+def cover(project: Project, ref: str, deliverable: str, items: List[str] = None, not_behaviour: str = None) -> dict:
+    """Say which specs/stories deliver a deliverable, or why it involves no behaviour (recorded)."""
+    phase = get(project, ref)
+    for d in phase.data.get("deliverables") or []:
+        if isinstance(d, dict) and str(d.get("id")) == deliverable.upper():
+            if items:
+                d["items"] = sorted(set((d.get("items") or []) + [project.find(i).id for i in items]))
+            if not_behaviour:
+                d["not_behaviour"] = not_behaviour
+                from . import journal
+                journal.decide(project, f"Phase {phase.id} {d['id']} ({d.get('name', '')[:60]}) needs no spec or "
+                                        f"story: {not_behaviour}", "decision")
+            if not items and not not_behaviour:
+                raise SpekyError("cover_what", "Give --items <spec|story,…> or --not-behaviour \"<why>\".")
+            phase.save()
+            return {"phase": phase.id, "deliverable": d["id"], "items": d.get("items", []),
+                    "not_behaviour": d.get("not_behaviour")}
+    raise SpekyError("deliverable_not_found", f"{phase.id} has no deliverable {deliverable}.")
+
+
+def flags(project: Project, phase) -> List[str]:
+    """Where the spec-driven flow was bypassed in a phase."""
+    from .tasks import Tasks
+    out = []
+    for d in phase.data.get("deliverables") or []:
+        if not isinstance(d, dict):
+            continue
+        covered = [i for i in d.get("items") or [] if project.try_find(str(i))]
+        if not covered and not d.get("not_behaviour") and not d.get("run"):
+            out.append(f"deliverable {d.get('id')} ({str(d.get('name', ''))[:60]}) is not delivered by a spec or story "
+                       f"(`speky phases cover {phase.id} {d.get('id')} --items <id>` or --not-behaviour \"<why>\")")
+    tasks = Tasks(project)
+    for t in tasks.unclassified():
+        if t["phase"] == phase.id:
+            out.append(f"task {t['id']} is outside a spec/story plan without a kind")
+    for t in tasks.exceptions():
+        if t["phase"] == phase.id:
+            out.append(f"task {t['id']} ran without a spec or story (exception: {t['exception'][:80]})")
+    return out
+
+
 def add_deliverable(project: Project, ref: str, name: str, run: str = None, pass_criteria: str = "") -> dict:
     phase = get(project, ref)
     items = phase.data.setdefault("deliverables", []) or []
@@ -253,6 +294,7 @@ def check(project: Project, ref: str) -> dict:
         item = project.try_find(str(sid))
         if item and item.info()["status"] not in DONE_STATUSES:
             open_specs.append(item.id)
-    passed = all(r["verified"] for r in results) and not open_tasks and not open_specs
+    flagged = flags(project, phase)
+    passed = all(r["verified"] for r in results) and not open_tasks and not open_specs and not flagged
     return {"phase": phase.id, "deliverables": results, "acceptance_criteria": phase.data.get("acceptance_criteria") or [],
-            "open_tasks": open_tasks, "open_specs": open_specs, "passed": passed}
+            "open_tasks": open_tasks, "open_specs": open_specs, "flags": flagged, "passed": passed}

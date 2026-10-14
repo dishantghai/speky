@@ -22,7 +22,7 @@ Map each kind of note to its SPEKY home with the generic commands — keep the w
 | Hand-kept | SPEKY |
 |---|---|
 | Plan with phases/milestones and gates | `speky phases add "<name>" --id <id>`; each gate line → `speky phases deliverable <id> "<text>" [--run "<cmd>"]`; finished ones → `speky phases verify`/`complete --force "<why>"` |
-| Checklist items (done/in progress/todo/deferred), nested | `speky task add "<text>" --phase <id> [--parent W<n>]`, then `speky task done|start|defer` — keep citations as `--refs adr:0021,screen:RV-1` |
+| Checklist items (done/in progress/todo/deferred), nested | behaviour → a spec/story per feature with its tasks in the plan (`speky task add --for <id> --closes R1`); small work → `speky task add "<text>" --phase <id> --kind fix|chore|measure [--parent W<n>]`, then `speky task done|start|defer` — keep citations as `--refs adr:0021,screen:RV-1` |
 | Knowledge / gotchas / owner preferences by topic | `speky remember "<entry>" --topic <topic> [--always] [--read-when "<trigger>"]`; owner preferences → `--topic owner --always` |
 | Session log | keep it; start new entries with `speky handoff`. Note the old file's location in the first handoff. |
 | Current state / next actions / watch-outs | first `speky handoff --file <notes.md>` with `## Summary`, `## Next`, `## Watch out for` copied from it |

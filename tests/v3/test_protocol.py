@@ -14,13 +14,22 @@ def test_next_walks_the_lifecycle(repo):
     assert protocol.next_action(p)["action"] == "validate"
     validation.check(p, item)
     assert protocol.next_action(p)["action"] == "plan"
-    (item.path / "plan.md").write_text("# Plan\n")
+    (item.path / "plan.md").write_text("# Plan\n\nFiles: app/paste.py (parse), app/ui.py (field).\nInterface: parse(url) -> Video.\n")
+    nxt = protocol.next_action(p)
+    assert nxt["action"] == "plan" and "R1, R2" in nxt["why"] + nxt["instruction"]   # tasks must cover R1, R2
+    from speky_core.tasks import Tasks
+    Tasks(p).add("Parse the link", item=item.id, closes=["R1"], check="true", enforce=True)
+    Tasks(p).add("Reject other sites", item=item.id, closes=["R2"], check="true", enforce=True)
+    assert "W1 Parse the link — closes R1" in (item.path / "plan.md").read_text()
     assert protocol.next_action(p)["action"] == "start"
     verification.start(p, item)
     nxt = protocol.next_action(p)
-    assert nxt["action"] == "implement" and nxt["skill"] == "speky-implement"
-    for r in ("R1", "R2"):
-        verification.record_evidence(p, item, r, "met", "t")
+    assert nxt["action"] == "implement" and nxt["task"] == "W1" and nxt["skill"] == "speky-implement"
+    assert not verification.verify(p, item, run="true")["passed"]          # plan tasks still open
+    assert Tasks(p).verify("W1")["requirements_met"] == ["R1"]
+    assert protocol.next_action(p)["task"] == "W2"
+    Tasks(p).verify("W2")
+    assert set(verification.load_evidence(item)) == {"R1", "R2"}            # evidence came from the tasks
     verification.verify(p, item, run="true")
     assert protocol.next_action(p)["action"] == "archive"
     verification.archive(p, item)
@@ -30,6 +39,9 @@ def test_next_walks_the_lifecycle(repo):
 def test_small_story_skips_plan(project):
     story = project.create("story", "Fix typo", story_type="bug", size="small", body=GOOD_SPEC)
     validation.check(project, story)
+    assert protocol.next_action(project, story.id)["action"] == "plan"      # no plan.md needed, but tasks are
+    from speky_core.tasks import Tasks
+    Tasks(project).add("Fix it", item=story.id, closes=["R1", "R2"], enforce=True)
     assert protocol.next_action(project, story.id)["action"] == "start"
 
 

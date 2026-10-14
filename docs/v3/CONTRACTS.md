@@ -341,13 +341,28 @@ tests and corrects the record with a new handoff.
 
 ## 13. Planning: phases, tasks, epics, dependencies, references
 
-- **Phases** (`speky phases list|add|start|deliverable|verify|check|complete|suggest`): the gate of a
-  phase is its deliverables; a deliverable with `run:` is verified by running it (`phases check`),
+- **Phases** (`speky phases list|add|start|deliverable|cover|verify|check|complete|suggest`): the gate of a
+  phase is its deliverables; each deliverable is delivered by specs/stories (`speky phases cover <p> <D#>
+  --items <ids>`) or marked `--not-behaviour "<why>"` (recorded); `phases check` flags uncovered
+  deliverables, unclassified tasks and exception tasks, and `complete` refuses while flags remain; a deliverable with `run:` is verified by running it (`phases check`),
   others by recorded evidence (`phases verify <phase> <D#> --evidence …`). `complete` refuses while
   deliverables are unverified or tasks of the phase are open (`--force "<reason>"` records a decision).
-- **Tasks** W<n> (`speky task add|start|done|defer|todo|promote|list`): small planned work without a
-  folder; `--phase`, `--epic`, `--parent`, `--refs adr:0021,screen:RV-1`. `promote` turns one into a
-  story or spec. `next` offers tasks of the current phase when no item is ready.
+- **Tasks** W<n>. Behaviour changes always go through a spec or story; **its tasks are its plan**:
+  `speky task add --for <id> "<task>" --closes R1[,R2|check:<name>] --check "<command>"`. Each task closes
+  requirements (the acceptance criteria) or done checks of that change; unknown IDs are refused. SPEKY
+  writes the plan's task list into the change's `plan.md` (between `BEGIN/END SPEKY tasks` markers) and
+  into `tasks.md`. `speky next` stays on *plan* until plan.md is written (sizes change/epic) and every
+  requirement is closed by a task, then walks the tasks in order; `speky task done W<n> --verify` runs
+  the task's check, and when the last task closing a requirement passes, the requirement's evidence is
+  recorded. `speky verify <id>` fails while plan tasks are open. **Standalone tasks** (no spec/story)
+  are only for small work that changes no behaviour — `--kind fix|chore|measure` (a chore/measure that
+  reads like a feature is refused) — or an explicit `--exception "<why>"`, recorded as a decision and
+  shown in `prime`. `task add` without one of these is refused. For traceability a standalone task always
+  belongs to a phase (default: the current one) or an epic (`--epic`); `speky task attach <W> --phase|--epic`
+  places an existing one. Tasks made before the rule are
+  *unclassified*: `next` asks to classify them first (`speky task promote`, `speky task attach <W> <id>
+  --closes R1`, `speky task kind <W> --kind …|--exception …`). Other commands: start, done, defer, todo,
+  show, list, promote (`--to story|spec`, carries phase, labels, refs and screens).
 - **Epics** (`speky epic add|show|attach|detach|list`): stories that share docs and context.
 - **Dependencies** (`speky deps add|remove|clear|foundation|cycles`, `speky order [--export]`):
   `order` sorts by dependencies, foundation flag and priority; `--export` writes `roadmap.md`.

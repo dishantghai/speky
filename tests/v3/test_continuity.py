@@ -36,6 +36,8 @@ def test_phase_gate_runs_commands_and_needs_evidence_for_manual(project):
     with pytest.raises(SpekyError):
         phases.verify_deliverable(project, "p1", "D2", "")
     phases.verify_deliverable(project, "p1", "D2", "owner approved in chat")
+    assert phases.check(project, "p1")["flags"]                 # D2 is not delivered by a spec or story
+    phases.cover(project, "p1", "D2", not_behaviour="a sign-off, not a feature")
     assert phases.check(project, "p1")["passed"]
     assert cli("phases", "complete", "p1")["status"] == "done"
 
@@ -82,7 +84,7 @@ def test_next_falls_back_to_tasks_then_phase_gate(project):
     phases.add(project, "P", "p1")
     phases.add_deliverable(project, "p1", "owner signs off")
     phases.set_status(project, "p1", "doing")
-    t = Tasks(project).add("Write docs")
+    t = Tasks(project).add("Write docs", work="chore")
     nxt = protocol.next_action(project)
     assert nxt["action"] == "task" and nxt["task"] == t["id"]
     Tasks(project).set_status(t["id"], "done")
@@ -334,7 +336,9 @@ def test_playbooks_cited_refs_and_design_system_in_next_and_context(project):
     packet = cli("context", item.id)
     reads = {l.get("read") for l in packet["layers"]}
     assert {"docs/ux/DESIGN.md", "docs/ux/stitch.md", "docs/ux/screens/README.md"} <= reads
-    Tasks(project).add("Design the Layers editor", labels=["ui"])
+    phases.add(project, "Track X", "track-x")
+    Tasks(project).add("Design the Layers editor", labels=["ui"], exception="design exploration before a story",
+                       phase="track-x")
     item.update_status(status="archived")
     assert "screen-design-narratives" in protocol.next_action(project)["instruction"]
     assert "[ui]" in (project.dir / "tasks.md").read_text()
@@ -659,7 +663,7 @@ def test_owner_instructions_must_be_remembered_and_questions_are_not_instruction
 
 def test_owner_feedback_answers_links_and_agent_assumptions(project):
     continuity.turn_start(project, "The Runs panel is confusing and the tab is not auto-selected.")
-    assert "one task or finding per point" in _stop(project)["reason"]
+    assert "per point" in _stop(project)["reason"]
     Tasks(project).add("Runs panel: explain itself", labels=["ui"])
     assert _stop(project) is None
     OwnerActions(project).add("Decide: defer W34 until a real backend? (recommended: yes)", "Decide or provide")
@@ -811,7 +815,8 @@ def test_screens_link_to_tasks_both_ways_and_follow_promotion(project, tmp_path)
     from speky_core import design, migrate, uxdesign
     png = tmp_path / "a.png"
     png.write_bytes(b"png")
-    Tasks(project).add("Step target picker", labels=["ui"])
+    phases.add(project, "Run view", "rv")
+    Tasks(project).add("Step target picker", labels=["ui"], work="fix", phase="rv")
     out = cli("design", "screen", "add", "RV-B6-step", str(png), "--for", "W1", "--group", "run-view/v6")
     assert out["screen"] == "RV-B6-step"
     assert "screen:RV-B6-step" in Tasks(project).get("W1")["refs"]
@@ -828,8 +833,43 @@ def test_screens_link_to_tasks_both_ways_and_follow_promotion(project, tmp_path)
     assert "- screen:RV-B6-step" in doc and "## References" not in doc
     assert story in design.find_screen(project, "RV-B6-step")["items"]
     # a screen that names a task only in its title is linked by migrate
-    Tasks(project).add("Dry-run marks")
+    Tasks(project).add("Dry-run marks", work="fix", phase="rv")
     cli("design", "screen", "add", "RV-B5-held", str(png), "--title", "Built: held cards (W2)")
     assert migrate.screens_naming_tasks(project) == [("RV-B5-held", "W2")]
     cli("migrate", "--apply")
     assert "screen:RV-B5-held" in Tasks(project).get("W2")["refs"] and migrate.screens_naming_tasks(project) == []
+
+
+def test_tasks_belong_to_a_plan_or_are_small_traced_work(project):
+    from speky_core import epics
+    item = spec(project)
+    # no kind, no plan: refused; feature text as a chore: refused; outside any phase/epic: refused
+    assert cli("task", "add", "Topology lens", expect=1)["error"]["code"] == "task_needs_spec"
+    assert cli("task", "add", "Implement the drive panel", "--kind", "chore", expect=1)["error"]["code"] \
+        == "task_looks_like_a_feature"
+    assert cli("task", "add", "Bump deps", "--kind", "chore", expect=1)["error"]["code"] == "task_untraced"
+    phases.add(project, "P", "p1")
+    phases.set_status(project, "p1", "doing")
+    assert cli("task", "add", "Bump deps", "--kind", "chore")["work"] == "chore"          # current phase
+    epics.add(project, "Checkout")
+    assert cli("task", "add", "Profile startup", "--kind", "measure", "--epic", "E001")["epic"] == "E001"
+    # a plan task must close something the change defines
+    assert cli("task", "add", "Parse", "--for", item.id, expect=1)["error"]["code"] == "task_closes_nothing"
+    assert cli("task", "add", "Parse", "--for", item.id, "--closes", "R9", expect=1)["error"]["code"] == "unknown_target"
+    assert cli("task", "add", "Parse", "--for", item.id, "--closes", "R1")["closes"] == ["R1"]
+    # an exception is recorded and shown to the owner
+    cli("task", "add", "Quick spike UI", "--exception", "owner asked for a throwaway demo today")
+    assert "throwaway demo" in " ".join(journal.decisions(project))
+    assert "Work running without a spec or story" in protocol.prime(project)
+    # tasks made before the rules: spec/story work comes first, then they must be classified
+    loose = Tasks(project).add("Old feature")["id"]         # API, no kind (as migrated plans were)
+    assert protocol.next_action(project)["action"] == "validate"        # the spec is preferred
+    item.update_status(status="archived")
+    nxt = protocol.next_action(project)
+    assert nxt["action"] == "classify" and nxt["task"] == loose
+    cli("task", "kind", loose, "--kind", "fix")
+    assert protocol.next_action(project)["action"] != "classify"
+    flags = phases.flags(project, phases.get(project, "p1"))
+    assert any("exception" in f for f in flags)
+    out = cli("phases", "complete", "p1", expect=1)
+    assert "flags" in out["error"]["message"]
