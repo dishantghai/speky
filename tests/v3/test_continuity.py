@@ -598,3 +598,20 @@ def test_rejected_screens_and_reference_kind(project, tmp_path):
     cli("design", "screen", "add", "baseline", str(png), "--kind", "reference")
     item = spec(project, body=GOOD_SPEC.replace("## Requirements", "## Design\n- screen:variant-a\n\n## Requirements"))
     assert uxdesign.state(project, item)["broken"] == ["screen:variant-a (explored, not chosen)"]
+
+
+def test_a_clone_without_checkpoint_picks_up_from_the_committed_log(repo):
+    from speky_core import config
+    cfg = repo.config
+    cfg["agent_profile"] = "team-maintainer"
+    config.save(repo.root, cfg)
+    git(repo.root, "add", "-A")
+    git(repo.root, "commit", "-q", "-m", "setup")
+    continuity.handoff(repo, summary="where we are", next_=["do W2"], title="Layout moved", run_tests=False)
+    (repo.root / "x.py").write_text("x = 1\n")
+    git(repo.root, "add", "x.py")
+    git(repo.root, "commit", "-q", "-m", "later work")
+    (repo.dir / "checkpoint.json").unlink()          # another machine / a fresh clone
+    text = protocol.prime(repo)
+    assert '"Layout moved"' in text and "No handoff recorded" not in text
+    assert "1 commit(s) since the handoff" in text and "later work" in text

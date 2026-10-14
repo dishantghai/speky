@@ -235,10 +235,28 @@ def write_state(project: Project, narrative: dict, snap: dict) -> None:
 
 
 # ---------------------------------------------------------------------------- session start facts
+def last_handoff_from_log(project: Project) -> dict:
+    """The last handoff as the committed record shows it (`log.md` + its `Handoff:` commit), for a clone or
+    another machine that has no `checkpoint.json` (that file is per machine and not committed)."""
+    path = project.dir / LOG_NAME
+    if not path.exists():
+        return {}
+    heads = re.findall(r"^## (\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?) · (.+?)\s*$", path.read_text(), re.MULTILINE)
+    if not heads:
+        return {}
+    stamp, title = heads[-1]
+    at = stamp.replace(" ", "T") + (":00" if " " in stamp else "T00:00:00")
+    sha = _git(project.root, "log", "-1", "--format=%H", "--fixed-strings", f"--grep=Handoff: {title}").strip()
+    if not sha:  # no Handoff: commit (conservative profile): the last commit that touched the log
+        sha = _git(project.root, "log", "-1", "--format=%H", "--", str(path.relative_to(project.root))).strip()
+    return {"at": at, "title": title, "head": sha or None, "source": "log.md"}
+
+
+
 def session_facts(project: Project) -> dict:
     """What `speky prime` shows at session start: is the recorded state still the state on disk?"""
     cp = load_checkpoint(project)
-    last = cp.get("last_handoff") or {}
+    last = cp.get("last_handoff") or last_handoff_from_log(project)
     head = vcs.head(project.root)
     since = last.get("head")
     commits = []
