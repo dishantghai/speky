@@ -99,7 +99,10 @@ def instruction_target(project: Project, recipe: dict) -> (str, str):
     if rel == "CLAUDE.md":
         path = project.root / "CLAUDE.md"
         if path.exists() and _imports_agents_md(path.read_text()):
-            return "AGENTS.md", "full"
+            # the full workflow is needed only by tools without a session-start hook that read AGENTS.md
+            others = [RECIPES[h] for h in project.config.get("harnesses", []) or []
+                      if h in RECIPES and RECIPES[h]["file"] == "AGENTS.md" and not RECIPES[h]["hook"]]
+            return "AGENTS.md", "full" if others else "minimal"
     return rel, recipe["profile"]
 
 

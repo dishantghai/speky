@@ -237,7 +237,14 @@ def test_claude_md_that_imports_agents_md_gets_the_block_in_agents_md(project):
     assert out["check"]["status"] == "current"
     assert (root / "CLAUDE.md").read_text() == "@AGENTS.md\n"
     agents = (root / "AGENTS.md").read_text()
-    assert agents.startswith("# How to work here") and "profile:full" in agents
+    # the session-start hook delivers the workflow, so the file keeps only the short block
+    assert agents.startswith("# How to work here") and "profile:minimal" in agents
+    harness.setup(project, "codex")   # a tool without hooks also reads AGENTS.md: it needs the full block
+    harness.setup(project, "claude-code")
+    assert "profile:full" in (root / "AGENTS.md").read_text()
+    assert harness.check(project, "claude-code")["status"] == "current"
+    harness.remove(project, "codex")
+    harness.setup(project, "claude-code")
     settings = json.loads((root / ".claude" / "settings.json").read_text())
     assert any("speky checkpoint --auto" in h["command"]
                for e in settings["hooks"]["PreCompact"] for h in e["hooks"])
@@ -712,3 +719,89 @@ def test_answers_are_recognised_anywhere_in_the_message(project):
     assert "answer" not in continuity.owner_signals(project, "What is W55 about?")
     continuity.turn_start(project, "About deferring W34 until a real backend is ported: yes, defer it.")
     assert "found: O1" in _stop(project)["reason"]
+
+
+def test_default_views_are_compact_and_all_shows_everything(project):
+    for i in range(3):
+        Tasks(project).add(f"task {i}")
+    Tasks(project).set_status("W1", "done")
+    out = cli("task", "list")
+    assert [t["id"] for t in out["tasks"]] == ["W2", "W3"] and out["not_shown"]["done"] == 1
+    assert len(cli("task", "list", "--all")["tasks"]) == 3
+    a, b = spec(project, "A"), spec(project, "B")
+    a.update_status(status="archived")
+    st = cli("state")
+    assert [i["id"] for i in st["items"]] == [b.id] and st["finished_not_shown"] == 1 and "config" not in st
+    assert len(cli("state", "--all")["items"]) == 2
+
+
+def test_tidy_archives_history_readably_and_nothing_is_lost(repo):
+    from speky_core import config, tidy
+    cfg = repo.config
+    cfg["tidy"] = {"decisions_keep": 2, "owner_days": 0, "auto": False}
+    config.save(repo.root, cfg)
+    # a completed phase with finished tasks, an open phase with an open task
+    phases.add(repo, "Done phase", "p0")
+    Tasks(repo).add("old work", phase="p0")
+    Tasks(repo).set_status("W1", "done", "shipped in 2026-10")
+    phases.set_status(repo, "p0", "done")
+    phases.add(repo, "Current", "p1")
+    phases.set_status(repo, "p1", "doing")
+    Tasks(repo).add("current work", phase="p1")
+    for i in range(7):
+        continuity.handoff(repo, summary=f"s{i}", title=f"Session {i}", run_tests=False, commit=False)
+    OwnerActions(repo).add("Reserve the name", "Do soon")
+    OwnerActions(repo).set_done("O1", True, "done by owner")
+    for i in range(3):
+        journal.decide(repo, f"decision {i}")
+    before = {f: (repo.dir / f).read_text() for f in ("log.md", "owner.md", "decisions.md")}
+    p = tidy.plan(repo)["moves"]
+    assert p == {"log": 2, "tasks": 1, "owner": 1, "decisions": 1}
+    out = tidy.apply(repo)["archived"]
+    assert tidy.plan(repo)["moves"] == {}   # a second run moves nothing more
+    assert out["tasks"] == ["W1"] and out["owner"] == ["O1"] and out["decisions"] == ["D1"]
+    a = repo.dir / "archive"
+    # nothing lost: every archived entry is in the archive verbatim, with when/why
+    assert "## " in (a / "log" / f"{continuity.now()[:7]}.md").read_text()
+    assert "Session 0" in (a / "log" / f"{continuity.now()[:7]}.md").read_text()
+    assert "Session 0" not in (repo.dir / "log.md").read_text() and "Session 6" in (repo.dir / "log.md").read_text()
+    assert "W1 old work" in (a / "tasks" / "p0.md").read_text() and "shipped in 2026-10" in (a / "tasks" / "p0.md").read_text()
+    assert "- [x] O1 Reserve the name" in next((a / "owner").glob("*.md")).read_text()
+    assert "D1: decision 0" in next((a / "decisions").glob("*.md")).read_text()
+    assert "archived" in (a / "tasks" / "p0.md").read_text() and (a / "index.md").exists()
+    # still findable; IDs never reused
+    assert cli("task", "show", "W1")["archived"] is True
+    assert [t["id"] for t in Tasks(repo).list()] == ["W2"]
+    assert journal.decisions(repo)[0].startswith("20") and len(journal.decisions(repo)) == 3
+    assert OwnerActions(repo).add("Next", "Do soon")["id"] == "O2"
+    assert journal.decide(repo, "later")["id"] == "D4"
+    assert Tasks(repo).add("new")["id"] == "W3"
+    hits = cli("history", "Session 0")["hits"]
+    assert hits and hits[0]["archived"] and hits[0]["date"]
+    assert "current work" in (repo.dir / "tasks.md").read_text()
+
+
+def test_knowledge_retire_keeps_the_entry_and_the_reason(project):
+    journal.remember(project, "Overhead is ~1.8 ms per step", "measurements")
+    journal.remember(project, "Overhead is ~0.5 ms per step after W64", "measurements")
+    cli("knowledge", "retire", "measurements", "--entry", "Overhead is ~1.8", "--reason", "superseded by W64")
+    assert "1.8 ms" not in (project.dir / "knowledge" / "measurements.md").read_text()
+    archived = (project.dir / "archive" / "knowledge" / "measurements.md").read_text()
+    assert "1.8 ms" in archived and "superseded by W64" in archived
+
+
+def test_prime_warns_when_records_or_start_load_outgrow_their_budget(project):
+    from speky_core import config
+    cfg = project.config
+    cfg["context"] = {"prime_budget_tokens": 50}
+    config.save(project.root, cfg)
+    assert "## Housekeeping" in protocol.prime(project) and "budget 50" in protocol.prime(project)
+
+
+def test_handoff_tidies_by_default(repo):
+    phases.add(repo, "Done phase", "p0")
+    Tasks(repo).add("old work", phase="p0")
+    Tasks(repo).set_status("W1", "done")
+    phases.set_status(repo, "p0", "done")
+    out = continuity.handoff(repo, summary="s", title="t", run_tests=False, commit=False)
+    assert out["tidied"] == {"tasks": ["W1"]}

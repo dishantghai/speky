@@ -84,9 +84,14 @@ def snapshot(project: Project, run_tests: bool = False) -> dict:
     return snap
 
 
-def checkpoint(project: Project, run_tests: bool = False, auto: bool = False, transcript: str = None) -> dict:
+def checkpoint(project: Project, run_tests: bool = False, auto: bool = False, transcript: str = None,
+               session: str = None) -> dict:
+    prev = load_checkpoint(project)
     snap = snapshot(project, run_tests=run_tests)
     snap["auto"] = auto
+    if auto:  # how often this session has been compacted: long sessions lose detail each time
+        snap["session"] = session
+        snap["compactions"] = (prev.get("compactions", 0) + 1) if session and prev.get("session") == session else 1
     if auto and transcript:  # before compaction: what the agent was in the middle of
         flight = in_flight_from_transcript(transcript)
         if flight:
@@ -171,7 +176,11 @@ def handoff(project: Project, summary: str = "", done: List[str] = None, learned
     write_checkpoint(project, snap)
     write_state(project, narrative, snap)
 
-    # 3. optional commit
+    # 3. finished history to the archive (a milestone is the natural moment)
+    from . import tidy
+    tidied = tidy.apply(project, "handoff")["archived"] if tidy.rules(project).get("auto", True) else {}
+
+    # 4. optional commit
     profile = project.config.get("agent_profile", "conservative")
     should_commit = commit if commit is not None else profile == "team-maintainer"
     committed = None
@@ -184,7 +193,7 @@ def handoff(project: Project, summary: str = "", done: List[str] = None, learned
             snap["head"] = _git(project.root, "rev-parse", "HEAD").strip() or snap.get("head")
             snap["last_handoff"]["head"] = snap["head"]
             write_checkpoint(project, snap)
-    return {"title": title, "log": str(log.relative_to(project.root)),
+    return {"title": title, "log": str(log.relative_to(project.root)), "tidied": tidied,
             "state": str((project.dir / STATE_NAME).relative_to(project.root)),
             "tests": snap.get("last_test"), "uncommitted": snap["uncommitted"], "committed": committed,
             "warnings": (["work is only in the working tree — commit it"] if snap["uncommitted"] else [])}
@@ -272,6 +281,7 @@ def session_facts(project: Project) -> dict:
     return {"last_handoff": last, "commits_since": commits, "uncommitted": dirty,
             "last_test": cp.get("last_test"), "checkpoint_at": cp.get("at"), "auto_checkpoint": cp.get("auto"),
             "in_flight": cp.get("in_flight") if cp.get("auto") else None,
+            "compactions": cp.get("compactions", 0) if cp.get("auto") else 0,
             "state_exists": (project.dir / STATE_NAME).exists()}
 
 

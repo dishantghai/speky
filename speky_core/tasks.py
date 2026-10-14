@@ -39,6 +39,13 @@ class Tasks:
                 return t
         raise SpekyError("task_not_found", f"No task {ref}.", "Run `speky task list --json`.")
 
+    def archived(self, ref: str = None) -> list:
+        """Tasks moved to the archive by `speky tidy` (exact records)."""
+        import json
+        path = self.project.dir / "archive" / "tasks.json"
+        rows = json.loads(path.read_text()) if path.exists() else []
+        return [t for t in rows if not ref or t["id"].lower() == ref.lower()]
+
     def _next_id(self) -> str:
         path = self.project.dir / "ids.json"
         counters = json.loads(path.read_text()) if path.exists() else {}

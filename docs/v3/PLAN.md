@@ -598,6 +598,50 @@ aIDE retrofitted on branch `chore/speky` (PLAN/STATE/KNOWLEDGE/LOG/owner notes �
 and a fresh Claude Code session there picked up at the right point, named the UI playbook and the done
 checks, and described the SPEKY handoff without being told.
 
+## 12. Context budget and archive *(study, 2026-10-14)*
+
+**Problem.** Everything an agent loads costs context, and SPEKY's records only grow. Measured on aIDE after
+four days: every session loaded ~5.4k tokens (AGENTS.md 12.2k chars incl. a SPEKY block that repeated
+`prime`; `prime` 9.7k chars); the commands agents run most returned everything (`status` 32k chars,
+`task list` 22k, `design screen list` 34k; spayce `state` 22k for 94 changes); `log.md` 17.6k chars and
+growing ~1k per handoff; `tasks.md` 12k of which 85% finished history.
+
+**Progressive disclosure — four levels.**
+| Level | What | Budget / rule |
+|---|---|---|
+| L0, every session | `prime` (pick-up, now, always-knowledge, where things go, session close) + the instruction-file block | ~2.5k tokens (`context.prime_budget_tokens`); the block is minimal where a hook delivers `prime` |
+| L1, summaries | `next`, `status`, `state`, `task list`, `phases list`, `knowledge list`, `design status`, `screen list` | open and current only, counts for the rest |
+| L2, detail on request | `--all`, `show <id>`, `context <id>`, topic files, plan.md, screens | read when the task needs it |
+| L3, archive | `.speky/archive/`, `speky history` | for backtracking, disputes, revisions |
+
+**What moves to the archive, and what never does.**
+| Record | Stays in the working set | Archived | When |
+|---|---|---|---|
+| Session log | newest 5 entries (`tidy.log_keep`) | older entries, verbatim, by month | every handoff |
+| Tasks | open tasks; finished tasks of open phases; recent ones | finished tasks of completed phases, or ≥30 days without a phase; never while a sub-task is open | every handoff |
+| Owner actions | open items; ticked items for 14 days (`owner_days`) | ticked items with all their notes | every handoff |
+| Decisions | newest 100 (`decisions_keep`) | older entries, IDs unchanged, by year | every handoff |
+| Knowledge | everything that still holds | entries retired on purpose, with the reason (`speky knowledge retire`) | by the agent, when superseded |
+| Never | changes (specs/stories, findings, evidence), living specs, phases, ADRs, design files, open work, anything unticked | — | — |
+
+**Archive properties.** Nothing is deleted or rewritten: entries keep their IDs, dates and wording and
+gain the date and rule they were archived under; `archive/index.md` lists every file with entry counts
+and date ranges; `archive/tasks.json` keeps exact task records (`speky task show W12` still works); IDs
+are never reused (counters in `ids.json`); `speky history <words> [--kind --since --git]` searches the
+working records, the archive and commit messages, newest first, with file, line and date. Git keeps every
+earlier version as well.
+
+**Triggers (the "watermark").** SPEKY cannot see the context window, so it uses three signals: every
+handoff runs the archive rules (`tidy.auto`); `prime` measures its own size and the archivable history and
+adds a *Housekeeping* note when over budget; the pre-compaction hook counts compactions per session and,
+from the second, `prime` advises finishing the step, handing off and continuing in a fresh session.
+`speky tidy` (dry run) / `--apply` runs the rules by hand.
+
+**Accuracy safeguards.** Nothing an agent needs for current work is moved (open work, open phases, the
+newest log entries, the current state); archived material stays one command away and is cited by file and
+date; tests check that every archived entry is present verbatim, IDs are not reused, archived tasks are
+still found, and a second run moves nothing.
+
 ## 8. Sources
 - Beads — https://github.com/steveyegge/beads (docs: https://beads.gascity.com/)
 - BMAD-METHOD — https://github.com/bmad-code-org/BMAD-METHOD (docs: https://docs.bmad-method.org/)

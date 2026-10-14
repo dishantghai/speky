@@ -50,6 +50,7 @@ covered: where code goes is the project's business. Only the rows marked *overri
 | context | `.speky/context/` | v2 project documents (product, architecture, tech decisions) | — |
 | research | `.speky/research/` | research not tied to one change (per change: `research.md`) | `paths.research` |
 | testing | `.speky/testing/` | recorded test runs (per machine, git-ignored) | — |
+| archive | `.speky/archive/` (`log/`, `tasks/` + `tasks.json`, `owner/`, `decisions/`, `knowledge/`, `index.md`) | finished history moved by `speky tidy`, verbatim and dated (§15) | — |
 
 Also: `.speky/design/icons/`, `.speky/design/manifest.json` (technology, design conflicts, components),
 `.speky/checkpoint.json` (per machine, git-ignored), `.speky/backups/` (git-ignored).
@@ -358,3 +359,24 @@ search/write/edit files (confined to the repository, never `.git/`), any `speky`
 (the project's test commands and read-only git unless `--allow-shell`), `skill`, `ask_user` (needs a
 terminal; otherwise the model records an assumption), `finish`. It follows the same skills and
 `speky next` protocol as a coding agent. `speky run --next` works through `speky next` until idle.
+
+## 15. Context budget, progressive disclosure and the archive
+
+Default views are summaries (open and current work, counts for the rest); `--all`, `show <id>` and
+`context <id>` give detail. `speky tidy` (dry run) / `--apply` moves finished history to
+`.speky/archive/` under the rules in `speky.yaml`:
+
+```yaml
+tidy: {log_keep: 5, task_days: 30, owner_days: 14, decisions_keep: 100, auto: true}   # auto: at every handoff
+context: {prime_budget_tokens: 2500}
+```
+
+Archived entries are verbatim, keep their IDs and dates, and record when and under which rule they moved;
+`archive/index.md` lists files, counts and date ranges; IDs are never reused. `speky history <words>
+[--kind log|tasks|owner|decisions|knowledge|changes] [--since YYYY-MM-DD] [--git]` searches everything,
+newest first. `speky knowledge retire <topic> --entry "<opening words>" --reason "<why>"` retires one
+entry. Never archived: changes with their findings and evidence, living specs, phases, ADRs, design files,
+open work. `prime` adds a *Housekeeping* note when the session-start load or archivable history is over
+budget, and after the second compaction of a session advises a handoff and a fresh session. Rationale and
+measurements: PLAN.md §12.
+

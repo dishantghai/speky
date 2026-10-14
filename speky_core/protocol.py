@@ -10,10 +10,15 @@ from . import graph, journal, validation
 from .items import DONE_STATUSES, Item, Project
 
 
-def state(project: Project) -> dict:
+def state(project: Project, everything: bool = True) -> dict:
+    """Items with readiness. `everything=False` lists only open items (finished ones are counted)."""
     all_info = graph.statuses(project)
     items = []
+    finished = 0
     for info in all_info.values():
+        if not everything and info["status"] in DONE_STATUSES:
+            finished += 1
+            continue
         reasons = graph.blocked_by(info, all_info) if info["status"] not in DONE_STATUSES else []
         items.append({k: info[k] for k in ("id", "kind", "type", "title", "status", "priority",
                                            "dependencies", "gates")}
@@ -21,9 +26,44 @@ def state(project: Project) -> dict:
                         "converged": bool(info["validation"].get("converged")),
                         "verified": bool(info["verification"].get("passed"))})
     open_gates = [{"item": i["id"], **g} for i in items for g in i["gates"] if g.get("status") == "open"]
-    return {"root": str(project.root), "items": items,
-            "ready": [i["id"] for i in graph.ready(project)], "open_gates": open_gates,
-            "cycles": graph.cycles(project), "config": project.config}
+    result = {"root": str(project.root), "items": items,
+              "ready": [i["id"] for i in graph.ready(project)], "open_gates": open_gates,
+              "cycles": graph.cycles(project)}
+    if everything:
+        result["config"] = project.config
+    else:
+        result["finished_not_shown"] = finished
+    return result
+
+
+def status_summary(project: Project) -> dict:
+    """`speky status`: where the project is, in a page. Detail: `--all`, `show`, `context`."""
+    from . import phases as phases_mod
+    from .owner import OwnerActions
+    from .tasks import Tasks
+    all_info = graph.statuses(project)
+    counts: dict = {}
+    for info in all_info.values():
+        counts[info["status"]] = counts.get(info["status"], 0) + 1
+    open_items = [{"id": i["id"], "title": i["title"][:80], "status": i["status"]}
+                  for i in all_info.values() if i["status"] not in DONE_STATUSES]
+    cur = phases_mod.current(project)
+    phase = None
+    if cur:
+        d = cur.to_dict()
+        phase = {"id": d["id"], "name": d["name"], "status": d["status"], "tasks": d.get("tasks"),
+                 "gate": f"{sum(x['verified'] for x in d['deliverables'])}/{len(d['deliverables'])} verified"}
+    tasks = Tasks(project).list()
+    open_tasks = [{"id": t["id"], "text": t["text"][:90], "status": t["status"], "phase": t["phase"]}
+                  for t in tasks if t["status"] in ("todo", "doing")]
+    owner = OwnerActions(project).open_items() if (project.dir / "owner.md").exists() else []
+    return {"items": {"by_status": counts, "open": open_items[:20], "open_total": len(open_items)},
+            "ready": [i["id"] for i in graph.ready(project)][:10], "phase": phase,
+            "tasks": {"open": open_tasks[:15], "open_total": len(open_tasks),
+                      "finished": len([t for t in tasks if t["status"] in ("done", "deferred")])},
+            "owner": [{"id": o["id"], "text": o["text"][:100]} for o in owner][:10],
+            "next": next_action(project),
+            "more": "speky status --all · speky task list --all · speky phases show <id> · speky context <id>"}
 
 
 def _rel(path) -> str:
@@ -363,6 +403,9 @@ def prime(project: Project, limit_items: int = 5) -> str:
     if facts["auto_checkpoint"] and facts["checkpoint_at"]:
         lines.append(f"- Context was compacted around {facts['checkpoint_at'][:16]}; the state at that "
                      "moment was saved automatically.")
+        if facts.get("compactions", 0) >= 2:
+            lines.append(f"- This session has been compacted {facts['compactions']} times; detail is lost each time. "
+                         "Finish the current step, hand off (`speky handoff`) and continue in a fresh session.")
         flight = facts.get("in_flight") or {}
         if flight.get("request"):
             lines.append("- The owner's request you were working on: \"" +
@@ -471,7 +514,12 @@ def prime(project: Project, limit_items: int = 5) -> str:
               "`speky handoff --file <notes.md>` (it logs the session, refreshes `.speky/state.md` and "
               "records the test result). Treat any finished milestone as a possible last moment before "
               "compaction."]
-    return "\n".join(lines) + "\n"
+    text = "\n".join(lines) + "\n"
+    from . import tidy
+    notes = tidy.watermark(project, len(text))
+    if notes:
+        text += "\n## Housekeeping\n" + "\n".join(f"- {n}" for n in notes) + "\n"
+    return text
 
 
 def prime_hook_json(project: Project) -> str:
