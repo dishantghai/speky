@@ -418,7 +418,7 @@ def _parser() -> argparse.ArgumentParser:
     s_add.add_argument("id")
     s_add.add_argument("files", nargs="*")
     s_add.add_argument("--title", default="")
-    s_add.add_argument("--kind", default="hifi", choices=["hifi", "lofi", "wireframe", "flow"])
+    s_add.add_argument("--kind", default="hifi", choices=["hifi", "lofi", "wireframe", "flow", "reference"])
     s_add.add_argument("--state", action="append", default=[], help="state shown (repeatable): default, empty, …")
     s_add.add_argument("--for", dest="item", default=None)
     s_add.add_argument("--source", default="", help="tool or link it came from (e.g. a Stitch project URL)")

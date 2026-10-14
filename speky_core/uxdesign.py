@@ -131,6 +131,8 @@ def state(project: Project, item: Item) -> dict:
                     unapproved.append(s["id"])
                 elif s["status"] == "superseded":
                     broken.append(f"{c['ref']} (superseded by {s['superseded_by']})")
+                elif s["status"] == "rejected":
+                    broken.append(f"{c['ref']} (explored, not chosen)")
                 continue
         (cited if c["read"] else broken).append(c["read"] or c["ref"])
     links = []

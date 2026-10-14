@@ -55,7 +55,7 @@ Also: `.speky/design/icons/`, `.speky/design/manifest.json` (technology, design 
 `.speky/checkpoint.json` (per machine, git-ignored), `.speky/backups/` (git-ignored).
 
 **Screens.** A screen's folder name is its ID, cited as `screen:<id>` (built-in reference). `screen.yaml`:
-`id, title, kind (hifi|lofi|wireframe|flow), states, items, status (draft|approved|superseded), source,
+`id, title, kind (hifi|lofi|wireframe|flow|reference), states, items, status (draft|approved|superseded|rejected), source,
 review, approved_by, supersedes / superseded_by`. `speky design screen add <id> <files> [--for <item>]
 [--state …] [--move]`, `… approve <id> --by <owner>`, `… supersede <id> --by <new-id>`,
 `… review <id> --file <review.md> --result pass|fail`, `… list`. An approved screen is never overwritten:

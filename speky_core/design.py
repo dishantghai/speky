@@ -32,7 +32,8 @@ from .items import Project, now, slugify, write_json
 IMAGE_EXT = {".png", ".jpg", ".jpeg", ".webp", ".svg"}
 DESIGN_EXT = IMAGE_EXT | {".html", ".htm", ".pdf", ".fig"}
 CONFLICT_TYPES = ("color", "typography", "spacing", "radius", "shadow", "layout", "component")
-SCREEN_KINDS = ("hifi", "lofi", "wireframe", "flow")
+SCREEN_KINDS = ("hifi", "lofi", "wireframe", "flow", "reference")  # reference: snapshots of what is built
+SCREEN_STATUSES = ("draft", "approved", "superseded", "rejected")  # rejected: explored, not chosen
 SCREEN_META = "screen.yaml"
 ID_RE = re.compile(r"^[A-Za-z0-9][\w.-]*$")
 

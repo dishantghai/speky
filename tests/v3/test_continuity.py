@@ -587,3 +587,14 @@ def test_grouped_screens_and_multi_screen_folders(project, tmp_path):
     (project.dir / "adr").mkdir()
     (project.dir / "adr" / "0021-clean.md").write_text("# ADR-0021\n\nStatus: Accepted\n")
     assert refs.locate(project, "adr", "0021", {"builtin": "adr"}) == ".speky/adr/0021-clean.md"
+
+
+def test_rejected_screens_and_reference_kind(project, tmp_path):
+    from speky_core import uxdesign
+    png = tmp_path / "a.png"
+    png.write_bytes(b"png")
+    cli("design", "screen", "add", "variant-a", str(png))
+    (project.dir / "design" / "screens" / "variant-a" / "screen.yaml").write_text("id: variant-a\nstatus: rejected\n")
+    cli("design", "screen", "add", "baseline", str(png), "--kind", "reference")
+    item = spec(project, body=GOOD_SPEC.replace("## Requirements", "## Design\n- screen:variant-a\n\n## Requirements"))
+    assert uxdesign.state(project, item)["broken"] == ["screen:variant-a (explored, not chosen)"]
