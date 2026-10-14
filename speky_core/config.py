@@ -45,6 +45,6 @@ def save(root: Path, config: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     ordered = {key: config.get(key, DEFAULTS.get(key)) for key in DEFAULTS}
     ordered.update({k: v for k, v in config.items() if k not in ordered})
-    path.write_text("# SPEKY v3 settings — see docs/v3/CONTRACTS.md §8\n"
+    path.write_text("# SPEKY v3 settings — reference: https://github.com/dishantghai/speky/blob/main/docs/v3/CONTRACTS.md#8-spekyyaml\n"
                     + yaml.safe_dump(ordered, sort_keys=False))
     return path

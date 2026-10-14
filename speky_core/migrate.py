@@ -117,7 +117,7 @@ def apply(project: Project) -> Dict:
             (project.capabilities_dir / "README.md").write_text(
                 "# Living specs\n\nOne folder per capability: `<capability>/spec.md` describes how the "
                 "system behaves **now**. Changes update them through `deltas/` when archived "
-                "(`speky archive`). See docs/v3/CONTRACTS.md §4.\n")
+                "(`speky archive`). Format: https://github.com/dishantghai/speky/blob/main/docs/v3/CONTRACTS.md#4-living-specs-and-deltas\n")
         elif step["step"] == "normalise_status":
             item = project.find(step["item"])
             raw = item.load_status() if item.status_path.exists() else {"created": now()}
