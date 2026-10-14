@@ -4,4 +4,4 @@ The core never calls a model. Coding agents (any harness) do the reasoning and t
 through the `speky` CLI (`--json`). See docs/v3/CONTRACTS.md.
 """
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"

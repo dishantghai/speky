@@ -99,6 +99,7 @@ Every SPEKY project keeps its non-code artifacts in the same places; `speky layo
 .speky/design/system.md               design system                           (paths.design_system)
 .speky/design/screens/<id>/           screens, catalogue in screens.md        (paths.design_screens)
 .speky/design/reviews/                design and UX reviews                   (paths.design_reviews)
+.speky/design/brief.md, narratives/…  design briefs, narratives, presentations, feedback
 .speky/owner.md · log.md · state.md   owner actions, session log, where things stand
 ```
 
