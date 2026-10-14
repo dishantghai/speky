@@ -144,3 +144,14 @@ def test_init_from_project(project):
 def test_host_mode_guide_and_status(project):
     assert run("host", "guide") == 0
     assert run("host", "status") == 0
+
+
+def test_sequence_with_spec_missing_name(ready_project):
+    """Real projects have status.json files with `title` but no `name` (v2 crashed on them)."""
+    status = speky_path(ready_project, "specs", "002-recipe-cards", "status.json")
+    data = json.loads(status.read_text())
+    data.pop("name", None)
+    data["title"] = "Recipe cards"
+    status.write_text(json.dumps(data))
+    assert run("sequence") == 0
+    assert run("sequence", "--export") == 0

@@ -14833,7 +14833,7 @@ Create a merged spec that:
                     
                     spec_info = {
                         "id": status.get("id"),
-                        "name": status.get("name"),
+                        "name": status.get("name") or status.get("title") or spec_dir.name.split("-", 1)[-1],
                         "summary": spec_summary,
                         "foundation": status.get("foundation", False),
                         "current_deps": status.get("dependencies", [])
@@ -15199,7 +15199,7 @@ If no dependencies (foundation spec), return: {{"dependencies": [], "reasoning":
                     if status.get("status") != "deprecated":
                         specs.append({
                             "id": status.get("id"),
-                            "name": status.get("name"),
+                            "name": status.get("name") or status.get("title") or spec_dir.name.split("-", 1)[-1],
                             "dependencies": status.get("dependencies", []),
                             "dir": spec_dir
                         })
@@ -15295,7 +15295,7 @@ If no dependencies (foundation spec), return: {{"dependencies": [], "reasoning":
                     if status.get("status") != "deprecated":
                         specs.append({
                             "id": status.get("id"),
-                            "name": status.get("name"),
+                            "name": status.get("name") or status.get("title") or spec_dir.name.split("-", 1)[-1],
                             "status": status.get("status", "draft"),
                             "priority": status.get("priority", "P1"),
                             "dependencies": status.get("dependencies", []),
@@ -16225,7 +16225,7 @@ Keep it focused and actionable. This should be implementable in 1-4 hours."""
                         foundation_count += 1
                     specs.append({
                         "id": status.get("id"),
-                        "name": status.get("name"),
+                        "name": status.get("name") or status.get("title") or spec_dir.name.split("-", 1)[-1],
                         "priority": status.get("priority", "P1"),
                         "dependencies": status.get("dependencies", []),
                         "source": status.get("source", "unknown"),
