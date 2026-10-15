@@ -64,7 +64,7 @@ task's screens, promoting the task cites them in the new change's `## Design`, a
 screens that name a task only in their title. `speky design screen add <id> <files> [--for <item|task>]
 [--state …] [--move]`, `… approve <id> --by <owner>`, `… supersede <id> --by <new-id>`,
 `… review <id> --file <review.md> --result pass|fail`, `… list`. An approved screen is never overwritten:
-a new iteration gets a new ID. Screens can be grouped: a folder with `screen.yaml` is a screen at any depth
+a new iteration gets a new ID. Files already in the screen's folder are registered in place (no copy); `screen add <id> --group <g>` with no files registers an existing folder. Screens can be grouped: a folder with `screen.yaml` is a screen at any depth
 (`screens/run-view/v2-E/held/`), and a `screens.yaml` in a folder lists several screens kept as single
 files there (`[{id, title, files: [empty.png], status, …}]`); `speky design screen add … --group run-view/v3`.
 In the default root a top-level folder without metadata is a screen too (ID = folder name). With

@@ -873,3 +873,25 @@ def test_tasks_belong_to_a_plan_or_are_small_traced_work(project):
     assert any("exception" in f for f in flags)
     out = cli("phases", "complete", "p1", expect=1)
     assert "flags" in out["error"]["message"]
+
+
+def test_screen_add_registers_files_already_in_place(project):
+    from speky_core import design
+    folder = project.dir / "design" / "screens" / "run-view" / "v7" / "RV-B7-held"
+    folder.mkdir(parents=True)
+    (folder / "render@2x.png").write_bytes(b"png")
+    (folder / "code.html").write_text("<html/>")
+    # the files given are the ones already in the screen's folder (crashed with SameFileError before)
+    out = cli("design", "screen", "add", "RV-B7-held", str(folder / "render@2x.png"), str(folder / "code.html"),
+              "--group", "run-view/v7")
+    assert out["path"] == ".speky/design/screens/run-view/v7/RV-B7-held" and len(out["added"]) == 2
+    assert (folder / "render@2x.png").read_bytes() == b"png"
+    # the folder itself, or no files at all: register what is there
+    other = project.dir / "design" / "screens" / "run-view" / "v7" / "RV-B7-empty"
+    other.mkdir()
+    (other / "render@2x.png").write_bytes(b"png")
+    assert cli("design", "screen", "add", "RV-B7-empty", "--group", "run-view/v7")["added"] == \
+        [".speky/design/screens/run-view/v7/RV-B7-empty/render@2x.png"]
+    assert cli("design", "screen", "add", "RV-B7-empty", str(other), "--group", "run-view/v7")["added"] == \
+        [".speky/design/screens/run-view/v7/RV-B7-empty/render@2x.png"]
+    assert {s["id"] for s in design.screens(project)} >= {"RV-B7-held", "RV-B7-empty"}
