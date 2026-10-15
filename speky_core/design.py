@@ -217,20 +217,33 @@ def screen_add(project: Project, sid: str, files: List[str], title: str = "", ki
     else:
         folder = screens_root(project) / group / sid if group else screens_root(project) / sid
     existing = _load_meta(folder)
+    if not files and folder.is_dir():  # `screen add <id>` on an existing folder: register what is there
+        added_in_place = [_rel(project, p) for p in sorted(folder.rglob("*")) if p.is_file() and p.name != SCREEN_META]
+    else:
+        added_in_place = []
     if existing.get("status") == "approved" and files:
         raise SpekyError("screen_approved", f"Screen {sid} is approved; a new iteration gets a new ID.",
                          f"`speky design screen add <new-id> ...`, then `speky design screen supersede {sid} --by <new-id>`.")
     folder.mkdir(parents=True, exist_ok=True)
-    added = []
+    added = list(added_in_place)
     for f in files or []:
         src = Path(f).expanduser()
         if not src.is_absolute():
             src = Path.cwd() / src
         if not src.exists():
             raise SpekyError("source_not_found", f"{f} does not exist.")
+        here = folder.resolve()
+        if src.resolve() == here or here in src.resolve().parents:
+            # already in the screen's folder: register in place, nothing to copy
+            added += [_rel(project, p) for p in ([src] if src.is_file() else sorted(src.rglob("*")))
+                      if p.is_file() and p.name != SCREEN_META]
+            continue
         for one in ([src] if src.is_file() else [p for p in sorted(src.rglob("*")) if p.is_file()]):
             target = folder / (one.name if src.is_file() else one.relative_to(src))
             target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists() and target.resolve() == one.resolve():
+                added.append(_rel(project, target))
+                continue
             (shutil.move if move else shutil.copy2)(str(one), str(target))
             added.append(_rel(project, target))
         if move and src.is_dir() and not any(p.is_file() for p in src.rglob("*")):
